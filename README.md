@@ -1,16 +1,16 @@
 
 # meow
 
-A fork of **quackbarc**'s client for noz.rip 
+A fork of **quackbarc**'s client for noz.rip mainly for personal use
 **QB**'s client: https://github.com/quackbarc/sketch
 ## Turbovibed clanked code
 This would have been impossible to do from scratch, all credit goes to **QB**'s wonderful code
 
 **Notable changes:**
-- Vector rendering (optional rasterized render style)
+- Vector rendering (and a Mixed option with a vector base with a bit of raster filtering)
 - Vector smoothing to remove line jaggedness, especially on very slow strokes
-- Adjusted and removed settings options
-- Different button layout and styles (might add optional or customization later)
+- Adjusted and removed settings
+- Different button layout
 - Slightly adjusted zooming functionality
 
 ---
