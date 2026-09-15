@@ -1,23 +1,17 @@
 
-# \<sketch\>
+# sketch
 
-<p align="center">
-    <img src="https://github.com/quackbarc/sketch/assets/49148994/07b9cd3a-a567-4dd9-aa6a-1da10fa866ca">
-    <i>https://quackbarc.github.io/sketch</i> -
-    <i>screenshot from <a href="https://github.com/quackbarc/sketch/releases/tag/v2024.4.8">v2024.4.8</a></i>
-</p>
+A fork of **quackbarc**'s client for noz.rip 
+**QB**'s client: https://github.com/quackbarc/sketch
+## Turbovibed clanked code
+This would have been impossible to do from scratch, all credit goes to **QB**'s wonderful code
 
----
-
-A fork of **dagwaging**'s drawing client for the anarchy draw-swapping website [**garyc.me/sketch**](https://garyc.me/sketch),
-with additional features like screentoning, filling, and zooming.
-
-> [!warning]
-> Because garyc.me/sketch is an anarchy website, drawings on it may be NSFW or even worse than that.<br>
-> Check the website with caution, in case you don't already frequent it.
-
-- dagwaging's original client: https://dagwaging.github.io/sketch/
-- dagwaging's original repo: https://github.com/dagwaging/sketch/
+**Notable changes:**
+- Vector rendering (optional rasterized render style)
+- Vector smoothing to remove line jaggedness, especially on very slow strokes
+- Adjusted and removed settings options
+- Different button layout and styles (might add optional or customization later)
+- Slightly adjusted zooming functionality
 
 ---
 
