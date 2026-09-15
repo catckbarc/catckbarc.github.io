@@ -1,0 +1,154 @@
+<script>
+  const KEEP_ALIVE_INTERVAL = 30000;
+  // TIMEOUT breakdown:
+  // Chrome's 60-second throttling for setInterval() calls
+  // (https://developer.chrome.com/blog/timer-throttling-in-chrome-88/),
+  // plus the interval, and a 10s grace period for good measure.
+  const KEEP_ALIVE_TIMEOUT = 70000 + KEEP_ALIVE_INTERVAL;
+
+  window.Sketch = window.Sketch || {};
+
+  /**
+   * @polymerBehavior
+   */
+  Sketch.TabBehavior = {
+    created: function() {
+        // Use a new save if autosave is turned off, just so it doesn't clash with
+        // the other saves in case it gets turned back on.
+        // (TODO): not hooked to sketch-app.autosave's default!
+        const settings = JSON.parse(localStorage.getItem("settings") || "{}");
+        const autosave = settings.autosave == null ? true : settings.autosave;
+        if(!autosave) {
+          this.useNewTab = true;
+        }
+
+        this._removeUnopenedTabs();
+        this._trackTabOpen();
+        window.addEventListener('beforeunload', this._trackTabClose.bind(this));
+        window.addEventListener('pagehide', this._trackTabClose.bind(this));
+        window.addEventListener('pageshow', (event) => {
+          // Restore tab state if we came back from the back/forward cache
+          if(event.persisted) {
+            this._removeUnopenedTabs();
+            this._trackTabOpen();
+          }
+        });
+
+        setInterval(this._keepSessionAlive.bind(this), KEEP_ALIVE_INTERVAL);
+        this._keepSessionAlive();
+    },
+
+    properties: {
+      useNewTab: {
+        type: Boolean,
+        value: false
+      },
+      rememberTab: {
+        type: Boolean,
+        value: false
+      },
+      tabID: {
+        type: Number,
+        value: null
+      }
+    },
+
+    _trackTabOpen: function() {
+      var tabs = JSON.parse(localStorage.getItem('tabs') || "{}");
+
+      const isTabDuplicate =
+        sessionStorage.getItem("tabID")
+        && !sessionStorage.getItem("dontDuplicate")
+        && ("wasDiscarded" in document ? !document.wasDiscarded : true);  // <-- for Chrome; Page Lifecycle API
+
+      if(sessionStorage.getItem('tabID') && !isTabDuplicate && !this.useNewTab) {
+        this.tabID = parseInt(sessionStorage.getItem('tabID'));
+      }
+      else if(this.useNewTab) {
+        this.tabID = this._getNewID();
+      }
+      else {
+        this.tabID = this._getUnusedID();
+      }
+
+      tabs[this.tabID] = true;
+      localStorage.setItem('tabs', JSON.stringify(tabs));
+      sessionStorage.setItem('tabID', this.tabID);
+      sessionStorage.removeItem('dontDuplicate');
+    },
+
+    _trackTabClose: function() {
+      var tabs = JSON.parse(localStorage.getItem('tabs') || "{}");
+
+      if(this.rememberTab) {
+        tabs[this.tabID] = false;
+      }
+      else {
+        delete tabs[this.tabID];
+        sessionStorage.removeItem('tabID');
+      }
+
+      sessionStorage.setItem("dontDuplicate", "true");
+      localStorage.setItem('tabs', JSON.stringify(tabs));
+    },
+
+    _keepSessionAlive: function() {
+      const currentTimestamp = Date.now();
+      localStorage.setItem("tabSessionTimestamp", JSON.stringify(currentTimestamp));
+    },
+
+    _removeUnopenedTabs: function() {
+      const currentTimestamp = Date.now();
+      const storedTimestamp = JSON.parse(localStorage.getItem("tabSessionTimestamp"));
+
+      const init = storedTimestamp === null;
+      if(init || (currentTimestamp - storedTimestamp >= KEEP_ALIVE_TIMEOUT)) {
+        const tabs = {};
+        localStorage.setItem("tabs", JSON.stringify(tabs));
+      }
+    },
+
+    /**
+     * Returns either the ID of an unopened save, or the ID of a new save.
+     *
+     * @returns {number}
+     */
+    _getUnusedID: function() {
+      const savedIDs = Object.keys(localStorage)
+        .map((k) => k.match(/^save(?<id>\d+)$/))
+        .filter((m) => m)
+        .sort((am, bm) => parseInt(am.groups.id) - parseInt(bm.groups.id))
+        .map((m) => parseInt(m.groups.id));
+      const tabs = JSON.parse(localStorage.getItem("tabs"));
+
+      for(const savedID of savedIDs.slice().reverse()) {
+        if(tabs[savedID]) {
+          continue;
+        }
+        return savedID;
+      }
+
+      let newID = 0;
+      while(tabs[newID]) {
+        newID++;
+      }
+      return newID;
+    },
+
+    /**
+     * Returns the ID of a new save.
+     * 
+     * @returns {number}
+     */
+    _getNewID: function() {
+      const tabs = JSON.parse(localStorage.getItem("tabs"));
+
+      let newID = 0;
+      while(tabs[newID] || localStorage.getItem(`save${newID}`)) {
+        newID++;
+      }
+      return newID;
+    }
+  };
+</script>
+
