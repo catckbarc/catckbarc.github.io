@@ -209,10 +209,10 @@
 						value: 10,
 					},
 					renderType: {
-						// options: "vector", "rasterized"
+						// options: "vector", "mixed", "quackbarc", "clanker"
 						type: String,
 						notify: true,
-						value: "vector",
+						value: "mixed",
 						observer: "_updateRendering",
 					},
 
@@ -350,6 +350,10 @@
 
 				_penLastInputTime: null,
 
+				_clankerLastVelocityX: null,
+
+				_clankerLastVelocityY: null,
+
 				// Public methods
 
 				play: function () {
@@ -481,9 +485,9 @@
 					this._canvas.lineJoin = "round"
 					this._canvas.lineCap = "butt"
 					this.$.sketchCanvas.style.opacity =
-						this.renderType == "rasterized" ? "1" : "0"
+						this.renderType == "quackbarc" ? "1" : "0"
 					this.$.vectorCanvas.style.display =
-						this.renderType == "rasterized" ? "none" : "block"
+						this.renderType == "quackbarc" ? "none" : "block"
 
 					this._setPlaying(false)
 					this._render()
@@ -562,7 +566,7 @@
 								: this._pointerType
 						this._activeTool = pointerErasing ? "eraser" : null
 						if (this._wasPressed) {
-							const obeyTimeResolution = this.tool == "pen"
+							const obeyTimeResolution = tool == "pen"
 							if (
 								obeyTimeResolution &&
 								this.timeResolution != 0 &&
@@ -574,7 +578,10 @@
 							) {
 								return
 							}
-							if (tool == "pen") {
+							if (
+								tool == "pen" &&
+								this.renderType != "quackbarc"
+							) {
 								const filteredPoint = this._filterPenPoint(
 									x,
 									y,
@@ -597,7 +604,10 @@
 							this.$.sketchCanvas.setPointerCapture(
 								event.pointerId,
 							)
-							if (tool == "pen") {
+							if (
+								tool == "pen" &&
+								this.renderType != "quackbarc"
+							) {
 								const filteredPoint = this._filterPenPoint(
 									x,
 									y,
@@ -613,7 +623,7 @@
 						this.$.sketchCanvas.releasePointerCapture(
 							event.pointerId,
 						)
-						if (tool == "pen") {
+						if (tool == "pen" && this.renderType != "quackbarc") {
 							// Preserve the exact release position after slow-speed filtering.
 							this._draw(x, y, this._lastX, this._lastY)
 						}
@@ -627,6 +637,8 @@
 						this._penLastInputX = null
 						this._penLastInputY = null
 						this._penLastInputTime = null
+						this._clankerLastVelocityX = null
+						this._clankerLastVelocityY = null
 					}
 
 					this._lastEventTimeStamp = event.timeStamp
@@ -699,6 +711,8 @@
 						this._penLastInputX = x
 						this._penLastInputY = y
 						this._penLastInputTime = timestamp
+						this._penLastVelocityX = 0
+						this._penLastVelocityY = 0
 						return [x, y]
 					}
 
@@ -710,6 +724,8 @@
 						x - this._penLastInputX,
 						y - this._penLastInputY,
 					)
+					const velocityX = x - this._penLastInputX
+					const velocityY = y - this._penLastInputY
 					const speed = distance / elapsed
 					const speedRatio = Math.max(
 						0,
@@ -717,7 +733,44 @@
 					)
 					const smoothRatio =
 						speedRatio * speedRatio * (3 - 2 * speedRatio)
-					const weight = 0.3 + smoothRatio * 0.5
+					let weight =
+						this.renderType == "mixed"
+							? 0.55 + smoothRatio * 0.35
+							: this.renderType == "clanker"
+								? 0.65 + smoothRatio * 0.2
+								: 0.3 + smoothRatio * 0.5
+					if (this.renderType == "clanker") {
+						const previousSpeed = Math.hypot(
+							this._clankerLastVelocityX || 0,
+							this._clankerLastVelocityY || 0,
+						)
+						if (distance > 0 && previousSpeed > 0) {
+							const cosine =
+								(velocityX * this._clankerLastVelocityX +
+									velocityY * this._clankerLastVelocityY) /
+								(distance * previousSpeed)
+							if (cosine < 0.707) {
+								weight = 0.99
+							} else if (cosine > 0.85) {
+								x +=
+									(this._penFilteredX - this._penLastInputX) *
+									0.08
+								y +=
+									(this._penFilteredY - this._penLastInputY) *
+									0.08
+							}
+							const endpoint = this._nearestParallelEndpoint(
+								x,
+								y,
+								velocityX,
+								velocityY,
+							)
+							if (endpoint) {
+								x += (endpoint[0] - x) * 0.18
+								y += (endpoint[1] - y) * 0.18
+							}
+						}
+					}
 					this._penFilteredX =
 						x * weight + this._penFilteredX * (1 - weight)
 					this._penFilteredY =
@@ -725,7 +778,66 @@
 					this._penLastInputX = x
 					this._penLastInputY = y
 					this._penLastInputTime = timestamp
+					if (this.renderType == "clanker") {
+						this._clankerLastVelocityX = velocityX
+						this._clankerLastVelocityY = velocityY
+					}
 					return [this._penFilteredX, this._penFilteredY]
+				},
+
+				_nearestParallelEndpoint: function (
+					x,
+					y,
+					velocityX,
+					velocityY,
+				) {
+					const velocityLength = Math.hypot(velocityX, velocityY)
+					if (velocityLength == 0) {
+						return null
+					}
+
+					let nearest = null
+					let nearestDistance = 12
+					for (const line of this.$.data.lines) {
+						for (const endpointIndex of [0, line.length - 2]) {
+							const adjacentIndex =
+								endpointIndex == 0 ? 2 : line.length - 4
+							if (
+								adjacentIndex < 0 ||
+								adjacentIndex + 1 >= line.length
+							) {
+								continue
+							}
+							const segmentX =
+								line[endpointIndex] - line[adjacentIndex]
+							const segmentY =
+								line[endpointIndex + 1] -
+								line[adjacentIndex + 1]
+							const segmentLength = Math.hypot(segmentX, segmentY)
+							if (segmentLength == 0) {
+								continue
+							}
+							const parallel = Math.abs(
+								(velocityX * segmentX + velocityY * segmentY) /
+									(velocityLength * segmentLength),
+							)
+							if (parallel < 0.85) {
+								continue
+							}
+							const distance = Math.hypot(
+								line[endpointIndex] - x,
+								line[endpointIndex + 1] - y,
+							)
+							if (distance < nearestDistance) {
+								nearestDistance = distance
+								nearest = [
+									line[endpointIndex],
+									line[endpointIndex + 1],
+								]
+							}
+						}
+					}
+					return nearest
 				},
 
 				_timeResolved: function (n) {
@@ -819,6 +931,7 @@
 					for (const line of fillLines) {
 						this._drawLine(line)
 					}
+					this._renderSVG()
 				},
 
 				_moveStart() {
@@ -855,6 +968,7 @@
 					for (var p in tonePoints) {
 						this._drawLine(tonePoints[p])
 					}
+					this._renderSVG()
 				},
 
 				_toneEnd(x, y) {
@@ -872,7 +986,9 @@
 					if (isDot) {
 						if (
 							this.renderType == "vector" ||
-							this.renderType == "rasterized"
+							this.renderType == "quackbarc" ||
+							this.renderType == "mixed" ||
+							this.renderType == "clanker"
 						) {
 							// This offset should shorten the screentone line if the top-left point
 							// ever goes OOB on the top and/or on the left side
@@ -1021,6 +1137,77 @@
 					const lines = this.$.data.lines.slice()
 					lines.push(...this.$.data.currentLines)
 					const fragment = document.createDocumentFragment()
+					if (
+						this.renderType == "mixed" ||
+						this.renderType == "clanker"
+					) {
+						const defs = document.createElementNS(namespace, "defs")
+						const filter = document.createElementNS(
+							namespace,
+							"filter",
+						)
+						filter.setAttribute("id", "mixedTexture")
+						filter.setAttribute("x", "-2%")
+						filter.setAttribute("y", "-2%")
+						filter.setAttribute("width", "104%")
+						filter.setAttribute("height", "104%")
+
+						const noise = document.createElementNS(
+							namespace,
+							"feTurbulence",
+						)
+						noise.setAttribute("type", "fractalNoise")
+						noise.setAttribute(
+							"baseFrequency",
+							this.renderType == "mixed" ||
+								this.renderType == "clanker"
+								? "0.15"
+								: "0.06",
+						)
+						noise.setAttribute(
+							"numOctaves",
+							this.renderType == "mixed" ||
+								this.renderType == "clanker"
+								? "3"
+								: "1",
+						)
+						noise.setAttribute("seed", "7")
+						noise.setAttribute("result", "grain")
+
+						const displacement = document.createElementNS(
+							namespace,
+							"feDisplacementMap",
+						)
+						displacement.setAttribute("in", "SourceGraphic")
+						displacement.setAttribute("in2", "grain")
+						displacement.setAttribute(
+							"scale",
+							this.renderType == "mixed" ||
+								this.renderType == "clanker"
+								? "1.0"
+								: "0.55",
+						)
+						displacement.setAttribute("xChannelSelector", "R")
+						displacement.setAttribute("yChannelSelector", "G")
+						displacement.setAttribute("result", "displaced")
+
+						const blur = document.createElementNS(
+							namespace,
+							"feGaussianBlur",
+						)
+						blur.setAttribute("in", "displaced")
+						blur.setAttribute(
+							"stdDeviation",
+							this.renderType == "mixed" ||
+								this.renderType == "clanker"
+								? "0.35"
+								: "0.18",
+						)
+
+						filter.append(noise, displacement, blur)
+						defs.appendChild(filter)
+						fragment.appendChild(defs)
+					}
 					const background = document.createElementNS(
 						namespace,
 						"rect",
@@ -1041,12 +1228,17 @@
 					group.setAttribute("stroke", "black")
 					group.setAttribute("stroke-width", "3")
 					group.setAttribute("stroke-linecap", this._canvas.lineCap)
-					group.setAttribute("stroke-linejoin", this._canvas.lineJoin)
-					if (this._canvas.lineJoin == "miter") {
-						group.setAttribute(
-							"stroke-miterlimit",
-							this._canvas.miterLimit,
-						)
+					group.setAttribute(
+						"stroke-linejoin",
+						this.renderType == "vector"
+							? "round"
+							: this._canvas.lineJoin,
+					)
+					if (
+						this.renderType == "mixed" ||
+						this.renderType == "clanker"
+					) {
+						group.setAttribute("filter", "url(#mixedTexture)")
 					}
 
 					for (const line of lines) {
@@ -1058,8 +1250,12 @@
 							line.length == 4 &&
 							line[0] == line[2] &&
 							line[1] == line[3]
-						const galleryDot = this.renderType == "vector" && isDot
-						if (isDot && this.renderType != "vector") {
+						const isVectorDisplay =
+							this.renderType == "vector" ||
+							this.renderType == "mixed" ||
+							this.renderType == "clanker"
+						const galleryDot = isVectorDisplay && isDot
+						if (isDot && !isVectorDisplay) {
 							const circle = document.createElementNS(
 								namespace,
 								"circle",

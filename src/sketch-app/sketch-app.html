@@ -114,14 +114,7 @@
           max-height: 300px;
           border-radius: 4px;
 
-          /**
-           * Force a scrollbar to appear all the time.
-           * This is mainly here to help <iron-dropdown> with calculating
-           * the final dropdown width including the scrollbar; without it
-           * (i.e. on `overflow-y: auto`), it's not good at automatically
-           * assuming whether there's gonna be a scrollbar or not.
-           **/
-          overflow-y: scroll !important;
+          overflow-y: auto !important;
 
           /**
            * Take out any positioning-related offsets caused by
@@ -344,6 +337,18 @@
         display: none;
       }
 
+      /* Keep the toolbar's compact settings menu within its dropdown height. */
+      #settingsButton .settings h3 {
+        padding-top: 8px;
+        padding-bottom: 2px;
+      }
+
+      #settingsButton .settings paper-item,
+      #settingsButton .settings paper-icon-item {
+        padding-top: 4px;
+        padding-bottom: 4px;
+      }
+
       /* Big settings styles */
 
       .settings-list h3 {
@@ -555,103 +560,26 @@
         padding: 0px;
         width: 100%;
         height: 100%;
-        min-width: 56px;
-        min-height: 56px;
-        flex: 0 0 auto;
       }
 
-      #toolbar paper-icon-button:not(.dropdown-trigger),
-      #toolbar paper-menu-button {
+      :host[toolbar-position="left"] #toolbar #mini-stats,
+      :host[toolbar-position="right"] #toolbar #mini-stats {
+        order: 2;
+      }
+
+      :host[toolbar-position="left"] #toolbar #mini-stats ~ paper-icon-button,
+      :host[toolbar-position="right"] #toolbar #mini-stats ~ paper-icon-button,
+      :host[toolbar-position="left"] #toolbar #mini-stats ~ paper-menu-button,
+      :host[toolbar-position="right"] #toolbar #mini-stats ~ paper-menu-button {
+        order: 3;
+      }
+
+      :host[toolbar-position="left"] #toolbar .history-button,
+      :host[toolbar-position="right"] #toolbar .history-button {
         box-sizing: border-box;
-        width: 56px;
-        height: 56px;
-        aspect-ratio: 1;
-        flex: 0 0 auto;
-        padding: 16px;
-      }
-
-      #toolbar paper-menu-button paper-icon-button.dropdown-trigger {
-        padding: 16px;
-      }
-
-      #toolbar .settings paper-icon-button {
         width: 40px;
-        height: 40px;
-        aspect-ratio: auto;
-        flex: 0 0 auto;
-        padding: 8px;
-      }
-
-      #toolbar paper-icon-button {
-        --paper-icon-button-ink-color: transparent;
-        --paper-icon-button: {
-          background-color: transparent;
-          transition: background-color 120ms ease;
-        };
-        --paper-icon-button-hover: {
-          background-color: #0002;
-        };
-      }
-
-      #toolbar paper-menu-button:hover paper-icon-button.dropdown-trigger {
-        background-color: #0002;
-      }
-
-      #toolbar paper-menu-button:has(paper-icon-button.dropdown-trigger[active]) {
-        position: relative;
-      }
-
-      #toolbar paper-menu-button:has(paper-icon-button.dropdown-trigger[active])::after {
-        content: "+";
-        position: absolute;
-        right: 5px;
-        bottom: 3px;
-        color: #e7e1e1;
-        font-size: 15px;
-        font-weight: bold;
-        line-height: 2;
-        pointer-events: none;
-      }
-
-      #toolbar paper-ripple {
-        display: none;
-      }
-
-      #toolbar paper-icon-button:active {
-        background-color: #0003;
-        box-shadow: inset 0 2px 4px #0004;
-      }
-
-      #toolbar paper-icon-button[active] {
-        background-color: #0003;
-        box-shadow: none;
-      }
-
-      #toolbar paper-icon-button:active[active] {
-        box-shadow: inset 0 2px 4px #0004;
-      }
-
-      #toolbar paper-menu-button {
-        background-color: transparent;
-        transition: background-color 120ms ease;
-      }
-
-      #toolbar paper-menu-button:hover {
-        background-color: transparent;
-      }
-
-      #toolbar paper-menu-button:active {
-        background-color: #0003;
-        box-shadow: inset 0 2px 4px #0004;
-      }
-
-      #toolbar paper-menu-button[opened] {
-        background-color: #0003;
-        box-shadow: none;
-      }
-
-      #toolbar paper-menu-button:active[opened] {
-        box-shadow: inset 0 2px 4px #0004;
+        height: 60px;
+        padding: 18px 8px;
       }
 
       /* Toolbar positioning styles */
@@ -680,15 +608,9 @@
       :host[toolbar-position="left"] #toolbar paper-menu-button,
       :host[toolbar-position="right"] #toolbar paper-menu-button {
         box-sizing: border-box;
-        width: 100%;
-        height: auto;
-        aspect-ratio: 1;
+        width: 40px;
+        height: 40px;
         flex: 0 0 auto;
-      }
-
-      :host[toolbar-position="left"] #toolbar paper-icon-button:not(.dropdown-trigger),
-      :host[toolbar-position="right"] #toolbar paper-icon-button:not(.dropdown-trigger) {
-        padding: 16px;
       }
 
       :host[toolbar-position="left"] #toolbar paper-menu-button,
@@ -699,18 +621,9 @@
       :host[toolbar-position="left"] #toolbar paper-menu-button paper-icon-button.dropdown-trigger,
       :host[toolbar-position="right"] #toolbar paper-menu-button paper-icon-button.dropdown-trigger {
         box-sizing: border-box;
-        width: 100%;
-        height: 100%;
-        padding: 16px;
-      }
-
-      :host[toolbar-position="left"] #toolbar .settings paper-icon-button,
-      :host[toolbar-position="right"] #toolbar .settings paper-icon-button {
+        padding: 8px;
         width: 40px;
         height: 40px;
-        aspect-ratio: auto;
-        flex: 0 0 auto;
-        padding: 8px;
       }
 
       :host[toolbar-position="top"],
@@ -800,6 +713,13 @@
         :host[toolbar-position="left"] #toolbar paper-menu-button paper-icon-button.dropdown-trigger,
         :host[toolbar-position="right"] #toolbar paper-menu-button paper-icon-button.dropdown-trigger {
           padding: 12px;
+        }
+
+        :host[toolbar-position="left"] #toolbar .history-button,
+        :host[toolbar-position="right"] #toolbar .history-button {
+          width: 48px;
+          height: 72px;
+          padding: 24px 12px;
         }
 
         /* Slightly larger toolbar icons on top/bottom docks */
@@ -961,6 +881,18 @@
         <h2>Settings</h2>
         <paper-dialog-scrollable class="settings-list">
             <h3>General</h3>
+          <paper-icon-item
+            class="button-item"
+            on-tap="_openKeybindMenu">
+            <iron-icon item-icon icon="font-download"></iron-icon>
+            <div>Open keyboard shortcuts menu</div>
+          </paper-icon-item>
+          <paper-icon-item
+            class="button-item"
+            on-tap="_openChangelogs">
+            <iron-icon item-icon icon="mdi:list-box-outline"></iron-icon>
+            <div>Open changelogs</div>
+          </paper-icon-item>
             <paper-item class="settings-item">
                 <paper-item-body two-line>
                     <div>Toggle tool settings with keybind</div>
@@ -1096,17 +1028,37 @@
                             <paper-item-body two-line>
                             <div>Vector</div>
                                 <div secondary>
-                              Gallery-style resolution-independent lines.
+                              Pure vector.
                                 </div>
                             </paper-item-body>
                         </paper-item>
                         <paper-item
-                          label="Rasterized"
-                          value="rasterized">
+                          label="Quackbarc"
+                          value="quackbarc">
                             <paper-item-body two-line>
-                            <div>Rasterized</div>
+                            <div>Quackbarc</div>
                                 <div secondary>
-                              Gallery-style lines rendered on the canvas.
+                              QB Gallery-Style.
+                                </div>
+                            </paper-item-body>
+                        </paper-item>
+                        <paper-item
+                          label="Mixed"
+                          value="mixed">
+                            <paper-item-body two-line>
+                            <div>Mixed</div>
+                                <div secondary>
+                              Vector with more raster feel.
+                                </div>
+                            </paper-item-body>
+                        </paper-item>
+                        <paper-item
+                          label="Clanker"
+                          value="clanker">
+                            <paper-item-body two-line>
+                            <div>Clanker</div>
+                                <div secondary>
+                              Mixed with a bit of Clanker nonsense.
                                 </div>
                             </paper-item-body>
                         </paper-item>
@@ -1148,84 +1100,110 @@
           hidden="{{!loading}}"
           indeterminate></paper-progress>
 
-      <paper-icon-button
+        <paper-icon-button
           title="Flip canvas horizontally"
           icon="image:flip"
-          noink
           on-tap="_flip"></paper-icon-button>
-        <paper-icon-button
+      <paper-icon-button
           title="{{localize('reset')}}"
           icon="delete"
-          noink
           disabled="{{_resetDisabled(sketchDisabled, loading, canUndo, ink)}}"
           on-tap="_reset"></paper-icon-button>
-      <paper-icon-button
-          title="{{localize('undo')}}"
-          icon="undo"
-          noink
-          disabled="{{_undoDisabled(sketchDisabled, loading, canUndo, undoDisabled)}}"
-          on-tap="_undo"></paper-icon-button>
-      <paper-icon-button
-          title="{{localize('redo')}}"
-          icon="redo"
-          noink
-          disabled="{{_editDisabled(loading, canRedo)}}"
-          on-tap="_redo"></paper-icon-button>
       <paper-menu-button
-          id="menuEraser"
+          id="menuScreentone"
           disabled="{{_toolDisabled(sketchDisabled, loading)}}"
           dynamic-align
           allow-outside-scroll
+          ignore-select
           vertical-align="bottom"
           vertical-offset="48"
-          on-opened-changed="_erase">
+          on-opened-changed="_screentone">
           <paper-icon-button
               class="dropdown-trigger"
-              title="{{localize('eraser')}}"
-              icon="mdi:eraser-variant"
-              noink
-              active="{{_isErasing(tool)}}"></paper-icon-button>
+              toggles
+              title="{{localize('screentone')}}"
+              icon="editor:border-clear"
+              active="{{_isToning(tool)}}"></paper-icon-button>
           <div class="dropdown-content settings">
-              <h3>Eraser</h3>
-              <paper-item class="settings-item">
+              <h3>Screentoning</h3>
+              <paper-item class="settings-item dropdown">
                   <paper-item-body two-line>
-                      <div>Erase strokes</div>
-                      <div secondary>
-                        Erases entire lines instead of line corners. Holding
-                        down Shift while erasing also activates this.
-                      </div>
+                      <div>Pattern</div>
+                      <div secondary>Layout of the screentones</div>
                   </paper-item-body>
-                  <paper-toggle-button
-                      checked="{{eraseStrokes}}"
-                      noink></paper-toggle-button>
+                  <paper-dropdown-menu
+                      dynamic-align
+                      no-label-float>
+                      <paper-listbox
+                          class="dropdown-content"
+                          selected="{{tonePattern}}"
+                          attr-for-selected="value">
+                          <paper-icon-item value="normal">
+                              <iron-icon
+                                  item-icon
+                                  icon="handmade:tone-normal"></iron-icon>
+                              <div>Normal</div>
+                          </paper-icon-item>
+                          <paper-icon-item value="diagonal">
+                              <iron-icon
+                                  item-icon
+                                  icon="handmade:tone-diagonal"></iron-icon>
+                              <div>Diagonal</div>
+                          </paper-icon-item>
+                      </paper-listbox>
+                  </paper-dropdown-menu>
               </paper-item>
-              <paper-item class="settings-item slider">
-                  <paper-item-body two-line>
-                      <div>Radius</div>
-                      <div secondary>Brush size, in px</div>
-                  </paper-item-body>
-                  <paper-slider
-                      value="{{eraserRadius}}"
-                      min="1"
-                      max="50"
-                      editable></paper-slider>
-              </paper-item>
+              <div class="settings-double">
+                  <paper-item class="settings-item slider">
+                      <paper-item-body two-line>
+                          <div>Spacing</div>
+                          <div secondary>(in px)</div>
+                      </paper-item-body>
+                      <paper-slider
+                          value="{{toneSpacing}}"
+                          min="2"
+                          max="40"
+                          editable></paper-slider>
+                  </paper-item>
+                  <paper-item class="settings-item slider">
+                      <paper-item-body two-line>
+                          <div>Radius</div>
+                          <div secondary>(in px)</div>
+                      </paper-item-body>
+                      <paper-slider
+                          value="{{toneRadius}}"
+                          min="1"
+                          max="20"
+                          editable></paper-slider>
+                  </paper-item>
+              </div>
+              <h3>Screentone Offset</h3>
+              <div class="settings-double">
+                  <paper-item class="settings-item slider">
+                      <paper-item-body two-line>
+                          <div>X</div>
+                          <div secondary>(in px)</div>
+                      </paper-item-body>
+                      <paper-slider
+                          value="{{toneOffsetX}}"
+                          min="-20"
+                          max="20"
+                          editable></paper-slider>
+                  </paper-item>
+                  <paper-item class="settings-item slider">
+                      <paper-item-body two-line>
+                          <div>Y</div>
+                          <div secondary>(in px)</div>
+                      </paper-item-body>
+                      <paper-slider
+                          value="{{toneOffsetY}}"
+                          min="-20"
+                          max="20"
+                          editable></paper-slider>
+                  </paper-item>
+              </div>
           </div>
       </paper-menu-button>
-      <paper-icon-button
-          title="{{localize('move')}}"
-          icon="mdi:cursor-move"
-          noink
-          disabled="{{_toolDisabled(sketchDisabled, loading)}}"
-          active="{{_isMoving(tool)}}"
-          on-tap="_move"></paper-icon-button>
-      <paper-icon-button
-          title="{{localize('pen')}}"
-          icon="create"
-          noink
-          disabled="{{_toolDisabled(sketchDisabled, loading)}}"
-          active="{{_isDrawing(tool)}}"
-          on-tap="_draw"></paper-icon-button>
       <paper-menu-button
           id="menuFill"
           disabled="{{_toolDisabled(sketchDisabled, loading)}}"
@@ -1237,9 +1215,9 @@
           on-opened-changed="_fill">
           <paper-icon-button
               class="dropdown-trigger"
+              toggles
               title="{{localize('fill')}}"
               icon="editor:format-color-fill"
-              noink
               active="{{_isFilling(tool)}}"></paper-icon-button>
           <div class="dropdown-content settings">
               <h3>Filling</h3>
@@ -1347,101 +1325,73 @@
               </div>
           </div>
       </paper-menu-button>
+      <paper-icon-button
+          toggles
+          title="{{localize('move')}}"
+          icon="mdi:cursor-move"
+          disabled="{{_toolDisabled(sketchDisabled, loading)}}"
+          active="{{_isMoving(tool)}}"
+          on-tap="_move"></paper-icon-button>
       <paper-menu-button
-          id="menuScreentone"
+          id="menuEraser"
           disabled="{{_toolDisabled(sketchDisabled, loading)}}"
           dynamic-align
           allow-outside-scroll
-          ignore-select
           vertical-align="bottom"
           vertical-offset="48"
-          on-opened-changed="_screentone">
+          on-opened-changed="_erase">
           <paper-icon-button
               class="dropdown-trigger"
-              title="{{localize('screentone')}}"
-              icon="editor:border-clear"
-              noink
-              active="{{_isToning(tool)}}"></paper-icon-button>
+              toggles
+              title="{{localize('eraser')}}"
+              icon="mdi:eraser-variant"
+              active="{{_isErasing(tool)}}"></paper-icon-button>
           <div class="dropdown-content settings">
-              <h3>Screentoning</h3>
-              <paper-item class="settings-item dropdown">
+              <h3>Eraser</h3>
+              <paper-item class="settings-item">
                   <paper-item-body two-line>
-                      <div>Pattern</div>
-                      <div secondary>Layout of the screentones</div>
+                      <div>Erase strokes</div>
+                      <div secondary>
+                        Erases entire lines instead of line corners. Holding
+                        down Shift while erasing also activates this.
+                      </div>
                   </paper-item-body>
-                  <paper-dropdown-menu
-                      dynamic-align
-                      no-label-float>
-                      <paper-listbox
-                          class="dropdown-content"
-                          selected="{{tonePattern}}"
-                          attr-for-selected="value">
-                          <paper-icon-item value="normal">
-                              <iron-icon
-                                  item-icon
-                                  icon="handmade:tone-normal"></iron-icon>
-                              <div>Normal</div>
-                          </paper-icon-item>
-                          <paper-icon-item value="diagonal">
-                              <iron-icon
-                                  item-icon
-                                  icon="handmade:tone-diagonal"></iron-icon>
-                              <div>Diagonal</div>
-                          </paper-icon-item>
-                      </paper-listbox>
-                  </paper-dropdown-menu>
+                  <paper-toggle-button
+                      checked="{{eraseStrokes}}"
+                      noink></paper-toggle-button>
               </paper-item>
-              <div class="settings-double">
-                  <paper-item class="settings-item slider">
-                      <paper-item-body two-line>
-                          <div>Spacing</div>
-                          <div secondary>(in px)</div>
-                      </paper-item-body>
-                      <paper-slider
-                          value="{{toneSpacing}}"
-                          min="2"
-                          max="40"
-                          editable></paper-slider>
-                  </paper-item>
-                  <paper-item class="settings-item slider">
-                      <paper-item-body two-line>
-                          <div>Radius</div>
-                          <div secondary>(in px)</div>
-                      </paper-item-body>
-                      <paper-slider
-                          value="{{toneRadius}}"
-                          min="1"
-                          max="20"
-                          editable></paper-slider>
-                  </paper-item>
-              </div>
-              <h3>Screentone Offset</h3>
-              <div class="settings-double">
-                  <paper-item class="settings-item slider">
-                      <paper-item-body two-line>
-                          <div>X</div>
-                          <div secondary>(in px)</div>
-                      </paper-item-body>
-                      <paper-slider
-                          value="{{toneOffsetX}}"
-                          min="-20"
-                          max="20"
-                          editable></paper-slider>
-                  </paper-item>
-                  <paper-item class="settings-item slider">
-                      <paper-item-body two-line>
-                          <div>Y</div>
-                          <div secondary>(in px)</div>
-                      </paper-item-body>
-                      <paper-slider
-                          value="{{toneOffsetY}}"
-                          min="-20"
-                          max="20"
-                          editable></paper-slider>
-                  </paper-item>
-              </div>
+              <paper-item class="settings-item slider">
+                  <paper-item-body two-line>
+                      <div>Radius</div>
+                      <div secondary>Brush size, in px</div>
+                  </paper-item-body>
+                  <paper-slider
+                      value="{{eraserRadius}}"
+                      min="1"
+                      max="50"
+                      editable></paper-slider>
+              </paper-item>
           </div>
       </paper-menu-button>
+      <paper-icon-button
+          toggles
+          title="{{localize('pen')}}"
+          icon="create"
+          disabled="{{_toolDisabled(sketchDisabled, loading)}}"
+          active="{{_isDrawing(tool)}}"
+          on-tap="_draw"></paper-icon-button>
+      <paper-icon-button
+          class="history-button undo-button"
+          title="{{localize('undo')}}"
+          icon="undo"
+          disabled="{{_undoDisabled(sketchDisabled, loading, canUndo, undoDisabled)}}"
+          on-tap="_undo"></paper-icon-button>
+      <paper-icon-button
+          class="history-button redo-button"
+          title="{{localize('redo')}}"
+          icon="redo"
+          disabled="{{_editDisabled(loading, canRedo)}}"
+          on-tap="_redo"></paper-icon-button>
       <paper-menu-button
           id="settingsButton"
           dynamic-align
@@ -1452,8 +1402,7 @@
           <paper-icon-button
               class="dropdown-trigger"
               title="{{localize('settings')}}"
-              icon="settings"
-              noink></paper-icon-button>
+              icon="settings"></paper-icon-button>
           <div class="dropdown-content settings">
               <h3>Actions</h3>
               <section class="button-row">
@@ -1517,7 +1466,7 @@
               <paper-item class="settings-item slider">
                   <paper-item-body two-line>
                       <div>Sample rate</div>
-                      <div secondary>Input latency, in ms</div>
+                      <div secondary>Input latency, in ms (0 not recommended)</div>
                   </paper-item-body>
                   <paper-slider
                       value="{{timeResolution}}"
@@ -1534,24 +1483,12 @@
                         checked="{{compactButtons}}"
                         noink></paper-toggle-button>
                     </paper-item>
-                <paper-icon-item
-                  class="button-item"
-                  on-tap="_openSettings">
-                  <iron-icon item-icon icon="settings"></iron-icon>
-                  <div>Show all settings</div>
-                </paper-icon-item>
-                <paper-icon-item
-                  class="button-item"
-                  on-tap="_openKeybindMenu">
-                  <iron-icon item-icon icon="font-download"></iron-icon>
-                  <div>Open keyboard shortcuts menu</div>
-              </paper-icon-item>
-              <paper-icon-item
-                  class="button-item"
-                  on-tap="_openChangelogs">
-                  <iron-icon item-icon icon="mdi:list-box-outline"></iron-icon>
-                  <div>Open changelogs</div>
-              </paper-icon-item>
+                    <paper-icon-item
+                      class="button-item"
+                      on-tap="_openSettings">
+                      <iron-icon item-icon icon="settings"></iron-icon>
+                      <div>Show all settings</div>
+                    </paper-icon-item>
               <template is="dom-if" if="[[konami]]">
               <hr>
               <h3>Hidden settings</h3>
@@ -1605,13 +1542,11 @@
       <paper-icon-button
           title="{{localize('peek')}}"
           icon="visibility"
-          noink
           disabled="{{loading}}"
           on-tap="_peek"></paper-icon-button>
       <paper-icon-button
           title="{{_viewGalleryTitle(localize, peekID)}}"
           icon="view-module"
-          noink
           on-tap="_viewGallery"></paper-icon-button>
       <paper-menu-button
           dynamic-align
@@ -1620,8 +1555,7 @@
           <paper-icon-button
               class="dropdown-trigger"
               title="{{localize('save')}}"
-              icon="save"
-              noink></paper-icon-button>
+              icon="save"></paper-icon-button>
           <div class="dropdown-content menu">
               <h3>Saving</h3>
               <paper-icon-item
@@ -2067,6 +2001,12 @@
           this._resolveOldEnumSetting(settings, "renderType", ["vector", "vector", "vector"]);
           if(settings.renderType == "round" || settings.renderType == "gallery" || settings.renderType == "gallery-miter") {
             settings.renderType = "vector";
+          }
+          if(settings.renderType == "rasterized") {
+            settings.renderType = "quackbarc";
+          }
+          if(settings.renderType == "clean") {
+            settings.renderType = "clanker";
           }
 
           this._setSetting("timeResolution", settings);

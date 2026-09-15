@@ -221,7 +221,9 @@
 						// override for screentones with gallery-style renderTypes
 						if (
 							(renderType == "vector" ||
-								renderType == "rasterized") &&
+								renderType == "quackbarc" ||
+								renderType == "mixed" ||
+								renderType == "clanker") &&
 							isDot
 						) {
 							return `M ${line[0]} ${line[1]} L ${line[0] + 2} ${line[1] + 2}`
@@ -240,8 +242,10 @@
 						return p.join(" ")
 					})
 
-					let linecap = "butt"
+					let linecap = "round"
 					let linejoin = "round"
+
+					linecap = "butt"
 
 					var xml =
 						'<svg viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">\n' +
