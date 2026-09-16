@@ -1,18 +1,18 @@
 
 # meow
 
-A fork of **quackbarc**'s client for noz.rip mainly for personal use.
+A fork of **Quackbarc**'s client for noz.rip.
 
-**QB**'s client: https://github.com/quackbarc/sketch
-## Turbovibed clanked code
-This would have been impossible to do from scratch, all credit goes to **QB**'s wonderful code
+**Quackbarc**'s client: https://github.com/quackbarc/sketch
+## CLANK
+99.9% of this code was AI coded, this would have been impossible to do from scratch without all the existing foundation, all credit goes to **QB**'s wonderful code
 
 **Notable changes:**
-- Vector rendering (and a Mixed option with a vector base with a bit of raster filtering)
-- Vector smoothing to remove line jaggedness, especially on very slow strokes
-- Adjusted and removed settings
-- Different button layout
-- Slightly adjusted zooming functionality
+- UI (tools and settings)
+- Vector render option (and more)
+- Brush smoothing slider and Noz's client brush behavior attempt (wip)
+- Minor behavior changes like Screentone and Eraser no longer skip a step on fast strokes
+- Soulless code
 
 ---
 
