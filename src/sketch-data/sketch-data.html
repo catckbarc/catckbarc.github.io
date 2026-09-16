@@ -250,12 +250,12 @@
 				)
 			},
 
-			drawEnd: function () {
+			drawEnd: function (lines = this.currentLines) {
 				// lines with only 1 point should be dealt with in sketch-canvas
 				// threshold is only such in case draw() rejects adding the extra point
-				const currentLine = this.currentLines.at(-1)
+				const currentLine = lines.at(-1)
 				if (currentLine.length > 2) {
-					for (const line of this.currentLines) {
+					for (const line of lines) {
 						if (this._isDot(line)) {
 							this.tonePoints.add(`${line[0]}:${line[1]}`)
 						}
@@ -263,10 +263,10 @@
 
 					var action = {
 						start: this.lines.length,
-						added: this.currentLines.slice(),
+						added: lines.slice(),
 						removed: [],
 					}
-					this.push("lines", ...this.currentLines)
+					this.push("lines", ...lines)
 					this.pushHistory([action])
 				} else {
 					this._setLength(
@@ -284,23 +284,32 @@
 			erase: function (x, y, px, py, radius, eraseStrokes) {
 				var erased = false
 
-				for (var i = 0; i < this.lines.length; i++) {
+				for (var i = this.lines.length - 1; i >= 0; i--) {
 					var line = this.lines[i]
 
 					for (var j = 0; j < line.length; j += 2) {
-						const isTonePoint = this.tonePoints.has(
-							`${line[j]}:${line[j + 1]}`,
+						const vertexHit = this._insideCircle(
+							line[j],
+							line[j + 1],
+							x,
+							y,
+							radius,
 						)
-						const hitRadius = isTonePoint ? radius + 1.5 : radius
-						if (
-							this._insideCircle(
+						const segmentHit =
+							j + 3 < line.length &&
+							this._segmentsWithinDistance(
 								line[j],
 								line[j + 1],
+								line[j + 2],
+								line[j + 3],
+								px,
+								py,
 								x,
 								y,
-								hitRadius,
+								radius,
 							)
-						) {
+
+						if (vertexHit || segmentHit) {
 							var action = {
 								start: i,
 								added: [],
@@ -367,9 +376,13 @@
 				const mask = new Uint8Array(801 * 601)
 				const maskLines = []
 				const queue = [[x, y]]
-				while (queue.length > 0) {
+				for (
+					let queueIndex = 0;
+					queueIndex < queue.length;
+					queueIndex++
+				) {
 					/** @type {number[]} */
-					const [qx, qy] = queue.shift()
+					const [qx, qy] = queue[queueIndex]
 
 					if (mask[this._maskIndex(qx, qy)]) {
 						continue
@@ -1100,6 +1113,98 @@
 						(y - origin_y) * (y - origin_y) <=
 					r * r
 				)
+			},
+
+			_segmentsWithinDistance: function (
+				ax,
+				ay,
+				bx,
+				by,
+				cx,
+				cy,
+				dx,
+				dy,
+				radius,
+			) {
+				const radiusSquared = radius * radius
+				const segmentsIntersect = this._segmentsIntersect(
+					ax,
+					ay,
+					bx,
+					by,
+					cx,
+					cy,
+					dx,
+					dy,
+				)
+
+				return (
+					segmentsIntersect ||
+					this._pointToSegmentDistanceSquared(
+						ax,
+						ay,
+						cx,
+						cy,
+						dx,
+						dy,
+					) <= radiusSquared ||
+					this._pointToSegmentDistanceSquared(
+						bx,
+						by,
+						cx,
+						cy,
+						dx,
+						dy,
+					) <= radiusSquared ||
+					this._pointToSegmentDistanceSquared(
+						cx,
+						cy,
+						ax,
+						ay,
+						bx,
+						by,
+					) <= radiusSquared ||
+					this._pointToSegmentDistanceSquared(
+						dx,
+						dy,
+						ax,
+						ay,
+						bx,
+						by,
+					) <= radiusSquared
+				)
+			},
+
+			_pointToSegmentDistanceSquared: function (px, py, ax, ay, bx, by) {
+				const abx = bx - ax
+				const aby = by - ay
+				const lengthSquared = abx * abx + aby * aby
+				const projection =
+					lengthSquared == 0
+						? 0
+						: ((px - ax) * abx + (py - ay) * aby) / lengthSquared
+				const t = Math.max(0, Math.min(1, projection))
+				const nearestX = ax + t * abx
+				const nearestY = ay + t * aby
+				const dxToPoint = px - nearestX
+				const dyToPoint = py - nearestY
+				return dxToPoint * dxToPoint + dyToPoint * dyToPoint
+			},
+
+			_segmentsIntersect: function (ax, ay, bx, by, cx, cy, dx, dy) {
+				const denominator =
+					(bx - ax) * (dy - cy) - (by - ay) * (dx - cx)
+				if (denominator == 0) {
+					return false
+				}
+
+				const t =
+					((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) /
+					denominator
+				const u =
+					((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) /
+					denominator
+				return t >= 0 && t <= 1 && u >= 0 && u <= 1
 			},
 
 			_isDot: function (line) {

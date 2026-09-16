@@ -27,19 +27,49 @@
 				display: block;
 
 				background: white;
-				opacity: 0;
 				touch-action: none;
 			}
 
 			#vectorCanvas {
 				position: absolute;
-				top: 0;
-				left: 0;
-				width: 800px;
-				height: 600px;
+				inset: 0;
+				width: 100%;
+				height: 100%;
+				background: white;
 				pointer-events: none;
 			}
+
+			:host:not([rendering-style="pure-vector"]):not(
+					[rendering-style="mild-vector"]
+				)
+				#vectorCanvas {
+				display: none;
+			}
+
+			:host([rendering-style="pure-vector"]) #sketchCanvas,
+			:host([rendering-style="mild-vector"]) #sketchCanvas {
+				background: transparent;
+				opacity: 0;
+			}
+
+			:host([rendering-style="mild-vector"]) #vectorCanvas {
+				filter: blur(0.4px) contrast(1.2);
+			}
+
+			:host([rendering-style="quackbarc-modified"]) #sketchCanvas {
+				filter: contrast(1.22);
+			}
 		</style>
+		<svg id="vectorCanvas" viewBox="0 0 800 600" aria-hidden="true">
+			<path
+				id="vectorPath"
+				fill="none"
+				stroke="black"
+				stroke-width="3"
+				stroke-linecap="butt"
+				stroke-linejoin="round"
+			></path>
+		</svg>
 		<canvas
 			id="sketchCanvas"
 			on-pointermove="_onPointerMove"
@@ -54,13 +84,6 @@
 			width="800"
 			height="600"
 		></canvas>
-		<svg
-			id="vectorCanvas"
-			width="800"
-			height="600"
-			viewBox="0 0 800 600"
-			aria-hidden="true"
-		></svg>
 		<sketch-data
 			id="data"
 			length="{{dataLength}}"
@@ -194,7 +217,7 @@
 					timeResolution: {
 						type: Number,
 						notify: true,
-						value: 15,
+						value: 20,
 					},
 					ignoreTouch: {
 						type: Boolean,
@@ -208,14 +231,24 @@
 						notify: true,
 						value: 10,
 					},
-					renderType: {
-						// options: "vector", "mixed", "quackbarc", "clanker"
+					smoothing: {
+						type: Number,
+						notify: true,
+						value: 0,
+					},
+					noz: {
+						type: Boolean,
+						notify: true,
+						value: false,
+						observer: "_onNozChanged",
+					},
+					renderingStyle: {
 						type: String,
 						notify: true,
-						value: "mixed",
-						observer: "_updateRendering",
+						value: "quackbarc-default",
+						reflectToAttribute: true,
+						observer: "_onRenderingStyleChanged",
 					},
-
 					// tool settings
 
 					fillAngle: {
@@ -338,21 +371,17 @@
 
 				_lastEventTimeStamp: 0,
 
+				_nozPendingPoint: null,
+
+				_nozLastDrawnPoint: null,
+
+				_nozLastDrawTime: 0,
+
+				_nozDrawFrame: null,
+
 				_pointerType: null,
 
-				_penFilteredX: null,
-
-				_penFilteredY: null,
-
-				_penLastInputX: null,
-
-				_penLastInputY: null,
-
-				_penLastInputTime: null,
-
-				_clankerLastVelocityX: null,
-
-				_clankerLastVelocityY: null,
+				_drawRenderFrame: null,
 
 				// Public methods
 
@@ -465,13 +494,22 @@
 					this._canvas.setTransform(transform)
 					this._canvas2.setTransform(transform)
 					this._render()
-					if (this.drawing) {
-						// Keep rendering a line that's being drawn while flipping.
-						// It's kinda fun to look at.
-						this.$.data.currentLines.forEach((line) =>
-							this._drawLine(line),
-						)
+				},
+
+				_onRenderingStyleChanged() {
+					if (!this._canvas) {
+						return
 					}
+
+					this._render()
+				},
+
+				_onNozChanged() {
+					if (!this._canvas) {
+						return
+					}
+
+					this._render()
 				},
 
 				_updateRendering: function (event) {
@@ -482,16 +520,11 @@
 					this._canvas.strokeStyle = "black"
 					this._canvas.lineWidth = 3
 					this._canvas.fillStyle = "black"
-					this._canvas.lineJoin = "round"
 					this._canvas.lineCap = "butt"
-					this.$.sketchCanvas.style.opacity =
-						this.renderType == "quackbarc" ? "1" : "0"
-					this.$.vectorCanvas.style.display =
-						this.renderType == "quackbarc" ? "none" : "block"
+					this._canvas.lineJoin = "round"
 
 					this._setPlaying(false)
 					this._render()
-					this._renderSVG()
 				},
 
 				// Pointer event handlers
@@ -543,13 +576,6 @@
 					var y = point[1]
 
 					var moved = !(this._lastX == x && this._lastY == y)
-					var isInBounds = x >= 0 && x < 800 && y >= 0 && y < 600
-					var wasInBounds =
-						this._lastX >= 0 &&
-						this._lastX < 800 &&
-						this._lastY >= 0 &&
-						this._lastY < 600
-
 					// prevent consecutive actions on the same coordinates
 					if (!moved && this._wasPressed == pressed) {
 						return
@@ -566,7 +592,8 @@
 								: this._pointerType
 						this._activeTool = pointerErasing ? "eraser" : null
 						if (this._wasPressed) {
-							const obeyTimeResolution = tool == "pen"
+							const obeyTimeResolution =
+								this.tool == "pen" && !this.noz
 							if (
 								obeyTimeResolution &&
 								this.timeResolution != 0 &&
@@ -578,24 +605,16 @@
 							) {
 								return
 							}
-							if (
-								tool == "pen" &&
-								this.renderType != "quackbarc"
-							) {
-								const filteredPoint = this._filterPenPoint(
+							if (this.noz && this.tool == "pen") {
+								this._scheduleNozDraw(x, y)
+							} else {
+								this._action(tool).middle(
 									x,
 									y,
-									event.timeStamp,
+									this._lastX,
+									this._lastY,
 								)
-								x = filteredPoint[0]
-								y = filteredPoint[1]
 							}
-							this._action(tool).middle(
-								x,
-								y,
-								this._lastX,
-								this._lastY,
-							)
 						} else {
 							if (!this.lockTool) {
 								this._lockedTool = null
@@ -604,18 +623,6 @@
 							this.$.sketchCanvas.setPointerCapture(
 								event.pointerId,
 							)
-							if (
-								tool == "pen" &&
-								this.renderType != "quackbarc"
-							) {
-								const filteredPoint = this._filterPenPoint(
-									x,
-									y,
-									event.timeStamp,
-								)
-								x = filteredPoint[0]
-								y = filteredPoint[1]
-							}
 							this._action(tool).start(x, y)
 							this._setDrawing(true)
 						}
@@ -623,22 +630,11 @@
 						this.$.sketchCanvas.releasePointerCapture(
 							event.pointerId,
 						)
-						if (tool == "pen" && this.renderType != "quackbarc") {
-							// Preserve the exact release position after slow-speed filtering.
-							this._draw(x, y, this._lastX, this._lastY)
-						}
 						this._action(tool).end(x, y)
 						this._setDrawing(false)
 
 						this._pointerType = null
 						this._activeTool = null
-						this._penFilteredX = null
-						this._penFilteredY = null
-						this._penLastInputX = null
-						this._penLastInputY = null
-						this._penLastInputTime = null
-						this._clankerLastVelocityX = null
-						this._clankerLastVelocityY = null
 					}
 
 					this._lastEventTimeStamp = event.timeStamp
@@ -704,142 +700,6 @@
 					return [x, y]
 				},
 
-				_filterPenPoint: function (x, y, timestamp) {
-					if (this._penFilteredX == null) {
-						this._penFilteredX = x
-						this._penFilteredY = y
-						this._penLastInputX = x
-						this._penLastInputY = y
-						this._penLastInputTime = timestamp
-						this._penLastVelocityX = 0
-						this._penLastVelocityY = 0
-						return [x, y]
-					}
-
-					const elapsed = Math.max(
-						timestamp - this._penLastInputTime,
-						1,
-					)
-					const distance = Math.hypot(
-						x - this._penLastInputX,
-						y - this._penLastInputY,
-					)
-					const velocityX = x - this._penLastInputX
-					const velocityY = y - this._penLastInputY
-					const speed = distance / elapsed
-					const speedRatio = Math.max(
-						0,
-						Math.min(1, (speed - 0.03) / 0.3),
-					)
-					const smoothRatio =
-						speedRatio * speedRatio * (3 - 2 * speedRatio)
-					let weight =
-						this.renderType == "mixed"
-							? 0.55 + smoothRatio * 0.35
-							: this.renderType == "clanker"
-								? 0.65 + smoothRatio * 0.2
-								: 0.3 + smoothRatio * 0.5
-					if (this.renderType == "clanker") {
-						const previousSpeed = Math.hypot(
-							this._clankerLastVelocityX || 0,
-							this._clankerLastVelocityY || 0,
-						)
-						if (distance > 0 && previousSpeed > 0) {
-							const cosine =
-								(velocityX * this._clankerLastVelocityX +
-									velocityY * this._clankerLastVelocityY) /
-								(distance * previousSpeed)
-							if (cosine < 0.707) {
-								weight = 0.99
-							} else if (cosine > 0.85) {
-								x +=
-									(this._penFilteredX - this._penLastInputX) *
-									0.08
-								y +=
-									(this._penFilteredY - this._penLastInputY) *
-									0.08
-							}
-							const endpoint = this._nearestParallelEndpoint(
-								x,
-								y,
-								velocityX,
-								velocityY,
-							)
-							if (endpoint) {
-								x += (endpoint[0] - x) * 0.18
-								y += (endpoint[1] - y) * 0.18
-							}
-						}
-					}
-					this._penFilteredX =
-						x * weight + this._penFilteredX * (1 - weight)
-					this._penFilteredY =
-						y * weight + this._penFilteredY * (1 - weight)
-					this._penLastInputX = x
-					this._penLastInputY = y
-					this._penLastInputTime = timestamp
-					if (this.renderType == "clanker") {
-						this._clankerLastVelocityX = velocityX
-						this._clankerLastVelocityY = velocityY
-					}
-					return [this._penFilteredX, this._penFilteredY]
-				},
-
-				_nearestParallelEndpoint: function (
-					x,
-					y,
-					velocityX,
-					velocityY,
-				) {
-					const velocityLength = Math.hypot(velocityX, velocityY)
-					if (velocityLength == 0) {
-						return null
-					}
-
-					let nearest = null
-					let nearestDistance = 12
-					for (const line of this.$.data.lines) {
-						for (const endpointIndex of [0, line.length - 2]) {
-							const adjacentIndex =
-								endpointIndex == 0 ? 2 : line.length - 4
-							if (
-								adjacentIndex < 0 ||
-								adjacentIndex + 1 >= line.length
-							) {
-								continue
-							}
-							const segmentX =
-								line[endpointIndex] - line[adjacentIndex]
-							const segmentY =
-								line[endpointIndex + 1] -
-								line[adjacentIndex + 1]
-							const segmentLength = Math.hypot(segmentX, segmentY)
-							if (segmentLength == 0) {
-								continue
-							}
-							const parallel = Math.abs(
-								(velocityX * segmentX + velocityY * segmentY) /
-									(velocityLength * segmentLength),
-							)
-							if (parallel < 0.85) {
-								continue
-							}
-							const distance = Math.hypot(
-								line[endpointIndex] - x,
-								line[endpointIndex + 1] - y,
-							)
-							if (distance < nearestDistance) {
-								nearestDistance = distance
-								nearest = [
-									line[endpointIndex],
-									line[endpointIndex + 1],
-								]
-							}
-						}
-					}
-					return nearest
-				},
-
 				_timeResolved: function (n) {
 					return Math.floor(n / this.timeResolution)
 				},
@@ -849,19 +709,74 @@
 				_drawStart(x, y) {
 					this._canvas2.drawImage(this._canvas.canvas, 0, 0, 800, 600)
 					this.$.data.drawStart()
+					this._nozLastDrawnPoint = [x, y]
+					this._nozLastDrawTime = 0
 					this._draw(x, y, x, y)
 				},
 
 				_draw(x, y, px, py) {
-					this._canvas.drawImage(this._canvas2.canvas, 0, 0, 800, 600)
 					this.$.data.draw(x, y, px, py)
-					this.$.data.currentLines.forEach((line) =>
-						this._drawLine(line),
+					this._scheduleActiveStrokeRender()
+				},
+
+				_scheduleNozDraw(x, y) {
+					this._nozPendingPoint = [x, y]
+					if (this._nozDrawFrame != null) {
+						return
+					}
+
+					this._nozDrawFrame = window.requestAnimationFrame(
+						(timestamp) => {
+							this._nozDrawFrame = null
+							this._drawNozPoint(null, null, timestamp)
+						},
 					)
-					this._renderSVG()
+				},
+
+				_drawNozPoint(x = null, y = null, timestamp = null) {
+					const point =
+						x == null || y == null ? this._nozPendingPoint : [x, y]
+					if (!point || !this._nozLastDrawnPoint) {
+						return
+					}
+
+					if (
+						timestamp != null &&
+						this.timeResolution != 0 &&
+						timestamp - this._nozLastDrawTime < this.timeResolution
+					) {
+						this._nozDrawFrame = window.requestAnimationFrame(
+							(nextTimestamp) => {
+								this._nozDrawFrame = null
+								this._drawNozPoint(null, null, nextTimestamp)
+							},
+						)
+						return
+					}
+
+					this._nozPendingPoint = null
+
+					const [px, py] = this._nozLastDrawnPoint
+					if (point[0] == px && point[1] == py) {
+						return
+					}
+
+					this._draw(point[0], point[1], px, py)
+					this._nozLastDrawnPoint = point
+					if (timestamp != null) {
+						this._nozLastDrawTime = timestamp
+					}
 				},
 
 				_drawEnd(x, y) {
+					if (this.noz) {
+						if (this._nozDrawFrame != null) {
+							window.cancelAnimationFrame(this._nozDrawFrame)
+							this._nozDrawFrame = null
+						}
+						this._drawNozPoint(x, y)
+					}
+
 					// Transform single dots into lines.
 					// Checking the last line instead of any other line was a bit
 					// of an arbitrary choice; even the first line would've worked.
@@ -870,10 +785,37 @@
 					if (lastLineIsDot) {
 						this._draw(x, y, x, y)
 					}
+					this.$.data.currentLines = this.$.data.currentLines.map(
+						(line) => this._smoothLine(line, true).map(Math.floor),
+					)
+					this._renderActiveStroke(false)
 
-					this.$.data.drawEnd()
-					this.$.data.currentLines = []
-					this._renderSVG()
+					this.$.data.drawEnd(this.$.data.currentLines)
+					this._canvas2.drawImage(this._canvas.canvas, 0, 0, 800, 600)
+				},
+
+				_scheduleActiveStrokeRender() {
+					if (this._drawRenderFrame != null) {
+						return
+					}
+
+					this._drawRenderFrame = window.requestAnimationFrame(() => {
+						this._drawRenderFrame = null
+						this._renderActiveStroke()
+					})
+				},
+
+				_renderActiveStroke(smooth = true) {
+					if (this._drawRenderFrame != null) {
+						window.cancelAnimationFrame(this._drawRenderFrame)
+						this._drawRenderFrame = null
+					}
+
+					this._canvas.drawImage(this._canvas2.canvas, 0, 0, 800, 600)
+					this.$.data.currentLines.forEach((line) =>
+						this._drawLine(line, smooth),
+					)
+					this._renderVector(smooth)
 				},
 
 				_eraseStart(x, y) {
@@ -931,7 +873,7 @@
 					for (const line of fillLines) {
 						this._drawLine(line)
 					}
-					this._renderSVG()
+					this._renderVector()
 				},
 
 				_moveStart() {
@@ -958,17 +900,35 @@
 				},
 
 				_tone(x, y, px, py) {
-					var tonePoints = this.$.data.tone(x, y, px, py, {
-						pattern: this.tonePattern,
-						radius: this.toneRadius,
-						spacing: this.toneSpacing,
-						offX: this.toneOffsetX,
-						offY: this.toneOffsetY,
-					})
-					for (var p in tonePoints) {
-						this._drawLine(tonePoints[p])
+					const deltaX = x - px
+					const deltaY = y - py
+					const distance = Math.hypot(deltaX, deltaY)
+					const step = Math.max(1, this.toneSpacing)
+					const steps = Math.max(1, Math.ceil(distance / step))
+
+					for (let i = 1; i <= steps; i++) {
+						const progress = i / steps
+						const sampleX = px + deltaX * progress
+						const sampleY = py + deltaY * progress
+						const tonePoints = this.$.data.tone(
+							sampleX,
+							sampleY,
+							px,
+							py,
+							{
+								pattern: this.tonePattern,
+								radius: this.toneRadius,
+								spacing: this.toneSpacing,
+								offX: this.toneOffsetX,
+								offY: this.toneOffsetY,
+							},
+						)
+
+						for (const tonePoint of tonePoints) {
+							this._drawLine(tonePoint)
+						}
 					}
-					this._renderSVG()
+					this._renderVector()
 				},
 
 				_toneEnd(x, y) {
@@ -977,42 +937,69 @@
 
 				// Rendering-related
 
-				_drawLine(points) {
+				_smoothLine(points, livePreview = false) {
+					if (this.smoothing <= 0 || points.length <= 4) {
+						return points
+					}
+
+					let smoothed = points.slice()
+					const smoothing = this.smoothing * 2
+					const passes = livePreview
+						? 1
+						: Math.min(3, 1 + Math.floor(smoothing / 8))
+					for (let pass = 0; pass < passes; pass++) {
+						const next = smoothed.slice()
+						for (let i = 2; i < points.length - 2; i += 2) {
+							const previousX = smoothed[i - 2]
+							const previousY = smoothed[i - 1]
+							const nextX = smoothed[i + 2]
+							const nextY = smoothed[i + 3]
+							const neighborDistance =
+								Math.hypot(
+									nextX - previousX,
+									nextY - previousY,
+								) / 2
+							const strength =
+								smoothing /
+								(smoothing + Math.max(1, neighborDistance))
+							const midpointX = (previousX + nextX) / 2
+							const midpointY = (previousY + nextY) / 2
+
+							next[i] =
+								smoothed[i] +
+								(midpointX - smoothed[i]) * strength
+							next[i + 1] =
+								smoothed[i + 1] +
+								(midpointY - smoothed[i + 1]) * strength
+						}
+						smoothed = next
+					}
+
+					return smoothed
+				},
+
+				_drawLine(points, smooth = false) {
+					if (smooth) {
+						points = this._smoothLine(points, true).map(Math.floor)
+					}
 					const isDot =
 						points.length == 4 &&
 						points[0] == points[2] &&
 						points[1] == points[3]
 
 					if (isDot) {
-						if (
-							this.renderType == "vector" ||
-							this.renderType == "quackbarc" ||
-							this.renderType == "mixed" ||
-							this.renderType == "clanker"
-						) {
-							// This offset should shorten the screentone line if the top-left point
-							// ever goes OOB on the top and/or on the left side
-							const topleftOffset = Math.max(
-								points[0] - Math.max(points[0] - 1, 0),
-								points[1] - Math.max(points[1] - 1, 0),
-							)
-							points = [
-								points[0] - topleftOffset,
-								points[1] - topleftOffset,
-								points[0] + 1,
-								points[1] + 1,
-							]
-						} else {
-							this._canvas.beginPath()
-							this._canvas.arc(
-								points[0],
-								points[1],
-								1.5,
-								0,
-								Math.PI * 2,
-							)
-							this._canvas.fill()
-						}
+						// This offset should shorten the screentone line if the top-left point
+						// ever goes OOB on the top and/or on the left side
+						const topleftOffset = Math.max(
+							points[0] - Math.max(points[0] - 1, 0),
+							points[1] - Math.max(points[1] - 1, 0),
+						)
+						points = [
+							points[0] - topleftOffset,
+							points[1] - topleftOffset,
+							points[0] + 1,
+							points[1] + 1,
+						]
 					}
 
 					this._canvas.beginPath()
@@ -1102,6 +1089,11 @@
 				},
 
 				async _render() {
+					if (this._drawRenderFrame != null) {
+						window.cancelAnimationFrame(this._drawRenderFrame)
+						this._drawRenderFrame = null
+					}
+
 					this._keepRendering = true
 					if (!this._rendering) {
 						// This while loop acts as a debounce;
@@ -1128,162 +1120,99 @@
 					for (var i in this.$.data.lines) {
 						this._drawLine(this.$.data.lines[i])
 					}
-					this._renderSVG()
+
+					if (this.drawing && this.tool == "pen") {
+						for (const line of this.$.data.currentLines) {
+							this._drawLine(line, true)
+						}
+					}
+
+					if (!this.drawing || this.tool != "pen") {
+						this._canvas2.drawImage(
+							this._canvas.canvas,
+							0,
+							0,
+							800,
+							600,
+						)
+					}
+
+					this._renderVector()
 				},
 
-				_renderSVG() {
-					const svg = this.$.vectorCanvas
-					const namespace = "http://www.w3.org/2000/svg"
-					const lines = this.$.data.lines.slice()
-					lines.push(...this.$.data.currentLines)
-					const fragment = document.createDocumentFragment()
-					if (
-						this.renderType == "mixed" ||
-						this.renderType == "clanker"
-					) {
-						const defs = document.createElementNS(namespace, "defs")
-						const filter = document.createElementNS(
-							namespace,
-							"filter",
-						)
-						filter.setAttribute("id", "mixedTexture")
-						filter.setAttribute("x", "-2%")
-						filter.setAttribute("y", "-2%")
-						filter.setAttribute("width", "104%")
-						filter.setAttribute("height", "104%")
-
-						const noise = document.createElementNS(
-							namespace,
-							"feTurbulence",
-						)
-						noise.setAttribute("type", "fractalNoise")
-						noise.setAttribute(
-							"baseFrequency",
-							this.renderType == "mixed" ||
-								this.renderType == "clanker"
-								? "0.15"
-								: "0.06",
-						)
-						noise.setAttribute(
-							"numOctaves",
-							this.renderType == "mixed" ||
-								this.renderType == "clanker"
-								? "3"
-								: "1",
-						)
-						noise.setAttribute("seed", "7")
-						noise.setAttribute("result", "grain")
-
-						const displacement = document.createElementNS(
-							namespace,
-							"feDisplacementMap",
-						)
-						displacement.setAttribute("in", "SourceGraphic")
-						displacement.setAttribute("in2", "grain")
-						displacement.setAttribute(
-							"scale",
-							this.renderType == "mixed" ||
-								this.renderType == "clanker"
-								? "1.0"
-								: "0.55",
-						)
-						displacement.setAttribute("xChannelSelector", "R")
-						displacement.setAttribute("yChannelSelector", "G")
-						displacement.setAttribute("result", "displaced")
-
-						const blur = document.createElementNS(
-							namespace,
-							"feGaussianBlur",
-						)
-						blur.setAttribute("in", "displaced")
-						blur.setAttribute(
-							"stdDeviation",
-							this.renderType == "mixed" ||
-								this.renderType == "clanker"
-								? "0.35"
-								: "0.18",
-						)
-
-						filter.append(noise, displacement, blur)
-						defs.appendChild(filter)
-						fragment.appendChild(defs)
+				_renderVector(smoothActive = true) {
+					const isVector =
+						this.renderingStyle == "pure-vector" ||
+						this.renderingStyle == "mild-vector"
+					this.$.vectorCanvas.style.display = isVector
+						? "block"
+						: "none"
+					this.$.sketchCanvas.style.opacity = isVector ? "0" : "1"
+					if (!isVector) {
+						this.$.vectorPath.setAttribute("d", "")
+						return
 					}
-					const background = document.createElementNS(
-						namespace,
-						"rect",
+
+					this.$.vectorPath.setAttribute("stroke-linecap", "butt")
+					this.$.vectorPath.setAttribute("stroke-linejoin", "round")
+					this.$.vectorPath.setAttribute(
+						"shape-rendering",
+						"geometricPrecision",
 					)
-					background.setAttribute("width", "800")
-					background.setAttribute("height", "600")
-					background.setAttribute("fill", "white")
-					fragment.appendChild(background)
 
-					const group = document.createElementNS(namespace, "g")
-					if (this.flipped) {
-						group.setAttribute(
-							"transform",
-							"translate(800 0) scale(-1 1)",
-						)
-					}
-					group.setAttribute("fill", "none")
-					group.setAttribute("stroke", "black")
-					group.setAttribute("stroke-width", "3")
-					group.setAttribute("stroke-linecap", this._canvas.lineCap)
-					group.setAttribute(
-						"stroke-linejoin",
-						this.renderType == "vector"
-							? "round"
-							: this._canvas.lineJoin,
-					)
-					if (
-						this.renderType == "mixed" ||
-						this.renderType == "clanker"
-					) {
-						group.setAttribute("filter", "url(#mixedTexture)")
-					}
+					const lines =
+						this.drawing && this.tool == "pen"
+							? this.$.data.lines.concat(this.$.data.currentLines)
+							: this.$.data.lines
+					const path = []
 
-					for (const line of lines) {
-						if (line.length < 4) {
+					const committedLineCount = this.$.data.lines.length
+					for (let i = 0; i < lines.length; i++) {
+						const points =
+							i < committedLineCount
+								? lines[i]
+								: smoothActive
+									? this._smoothLine(lines[i], true).map(
+											Math.floor,
+										)
+									: lines[i]
+						if (points.length < 2) {
 							continue
 						}
 
 						const isDot =
-							line.length == 4 &&
-							line[0] == line[2] &&
-							line[1] == line[3]
-						const isVectorDisplay =
-							this.renderType == "vector" ||
-							this.renderType == "mixed" ||
-							this.renderType == "clanker"
-						const galleryDot = isVectorDisplay && isDot
-						if (isDot && !isVectorDisplay) {
-							const circle = document.createElementNS(
-								namespace,
-								"circle",
+							points.length == 4 &&
+							points[0] == points[2] &&
+							points[1] == points[3]
+						let renderPoints = points
+
+						if (isDot) {
+							const topleftOffset = Math.max(
+								points[0] - Math.max(points[0] - 1, 0),
+								points[1] - Math.max(points[1] - 1, 0),
 							)
-							circle.setAttribute("cx", line[0])
-							circle.setAttribute("cy", line[1])
-							circle.setAttribute("r", "1.5")
-							circle.setAttribute("fill", "black")
-							group.appendChild(circle)
-							continue
+							renderPoints = [
+								points[0] - topleftOffset,
+								points[1] - topleftOffset,
+								points[0] + 1,
+								points[1] + 1,
+							]
 						}
 
-						const path = document.createElementNS(namespace, "path")
-						let d = galleryDot
-							? `M ${line[0]} ${line[1]} L ${line[0] + 2} ${line[1] + 2}`
-							: `M ${line[0]} ${line[1]}`
-						for (let i = 2; i < line.length; i += 2) {
-							if (galleryDot) {
-								break
-							}
-							d += ` L ${line[i]} ${line[i + 1]}`
+						const x = (point) =>
+							this.flipped ? 800 - point : point
+						const y = (point) => point
+						path.push(
+							`M ${x(renderPoints[0])} ${y(renderPoints[1])}`,
+						)
+						for (let i = 2; i < renderPoints.length; i += 2) {
+							path.push(
+								`L ${x(renderPoints[i])} ${y(renderPoints[i + 1])}`,
+							)
 						}
-						path.setAttribute("d", d)
-						group.appendChild(path)
 					}
 
-					fragment.appendChild(group)
-					svg.replaceChildren(fragment)
+					this.$.vectorPath.setAttribute("d", path.join(" "))
 				},
 
 				// Computed properties

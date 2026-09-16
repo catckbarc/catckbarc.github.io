@@ -145,6 +145,12 @@
 					value: true,
 					notify: true,
 				},
+
+				steppedZoom: {
+					type: Boolean,
+					value: true,
+					notify: true,
+				},
 			},
 
 			_contentDimensions: {
@@ -183,7 +189,7 @@
 			// Getter/setter properties
 
 			get steps() {
-				const steps = [
+				return [
 					// These steps are mostly based off of Medibang's zoom steps.
 					this.MINIMUM_ZOOM,
 					1 / 4,
@@ -199,8 +205,6 @@
 					8,
 					this.MAXIMUM_ZOOM,
 				]
-				steps.push(this._getFitZoom())
-				return [...new Set(steps)].sort((a, b) => a - b)
 			},
 
 			get contentElement() {
@@ -243,20 +247,6 @@
 					}
 				}
 				return this.MAXIMUM_ZOOM
-			},
-
-			zoomToStep: function (x, y, zoom) {
-				if (Math.abs(zoom - this._getFitZoom()) < 1e-9) {
-					this.fit = false
-					this.fit = true
-					return
-				}
-
-				if (x == null || y == null) {
-					this.zoom = zoom
-				} else {
-					this._zoomInto(x, y, zoom)
-				}
 			},
 
 			// Event listeners
@@ -401,22 +391,14 @@
 
 			_refitZoom: function () {
 				this._notifyFit = false
-				const zoom = this._getFitZoom()
-				this.zoom = zoom
-				this._notifyFit = true
-			},
-
-			_getFitZoom: function () {
-				const fitZoom = Math.min(
+				const zoom = Math.min(
 					(this.offsetWidth - this.margins * 2) /
 						this._contentDimensions.width,
 					(this.offsetHeight - this.margins * 2) /
 						this._contentDimensions.height,
 				)
-				return this._clamp(fitZoom, [
-					this.MINIMUM_ZOOM,
-					this.MAXIMUM_ZOOM,
-				])
+				this.zoom = zoom
+				this._notifyFit = true
 			},
 
 			// Mouse event listeners
@@ -664,11 +646,21 @@
 				deltaY =
 					deltaY > 0 ? Math.max(120, deltaY) : Math.min(-120, deltaY)
 
-				const newzoom =
-					deltaY > 0
-						? this.getZoomStepBefore(this.zoom)
-						: this.getZoomStepAfter(this.zoom)
-				this.zoomToStep(event.clientX, event.clientY, newzoom)
+				if (this.steppedZoom) {
+					const newzoom =
+						deltaY > 0
+							? this.getZoomStepBefore(this.zoom)
+							: this.getZoomStepAfter(this.zoom)
+					this._zoomInto(event.clientX, event.clientY, newzoom)
+				} else {
+					const zoomFactor =
+						deltaY > 0 ? 100 / deltaY : -(deltaY / 100)
+					this._zoomInto(
+						event.clientX,
+						event.clientY,
+						this.zoom * zoomFactor,
+					)
+				}
 
 				event.preventDefault()
 			},
