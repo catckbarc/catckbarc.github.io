@@ -1,6 +1,3 @@
-
-# meow
-
 A fork of **Quackbarc**'s client for noz.rip.
 
 **Quackbarc**'s client: https://github.com/quackbarc/sketch
