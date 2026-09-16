@@ -5,7 +5,7 @@ A fork of **Quackbarc**'s client for noz.rip.
 99.9% of this code was AI coded, this would have been impossible to do from scratch without all the existing foundation, all credit goes to **QB**'s wonderful code
 
 **Notable changes:**
-- UI (tools and settings)
+- UI (tool placement and settings)
 - Vector render option (and more)
 - Brush smoothing slider and Noz's client brush behavior attempt (wip)
 - Minor behavior changes like Screentone and Eraser no longer skip a step on fast strokes
