@@ -559,6 +559,12 @@
 
       /* Toolbar positioning styles */
 
+      :host[toolbar-position="top"],
+      :host[toolbar-position="bottom"] {
+        --paper-toolbar-height: 48px;
+        --paper-toolbar-sm-height: 48px;
+      }
+
       :host[toolbar-position="left"],
       :host[toolbar-position="right"] {
         --vertical-toolbar-width: 48px;
@@ -1358,7 +1364,7 @@
                     <paper-item class="settings-item">
                       <paper-item-body two-line>
                         <div>Noz</div>
-                        <div secondary>Noz client mode</div>
+                        <div secondary>Noz client pen mode</div>
                       </paper-item-body>
                       <paper-toggle-button checked="{{noz}}" noink></paper-toggle-button>
                     </paper-item>
