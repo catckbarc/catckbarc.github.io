@@ -8,7 +8,7 @@ A fork of **Quackbarc**'s client for noz.rip.
 - UI (tool placement and settings)
 - Vector render option (and more)
 - Brush smoothing slider and Noz's client brush behavior attempt (wip)
-- Minor behavior changes like Screentone and Eraser no longer skip a step on fast strokes
+- Minor behavior changes like: Screentone and Eraser no longer skip a step on fast strokes
 - Soulless code
 
 ---
