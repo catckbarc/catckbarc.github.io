@@ -186,6 +186,8 @@
 
 			_initialTapTimestamp: null,
 
+			_fitPreviousZoom: null,
+
 			// Getter/setter properties
 
 			get steps() {
@@ -247,6 +249,60 @@
 					}
 				}
 				return this.MAXIMUM_ZOOM
+			},
+
+			getFitZoom: function () {
+				return Math.min(
+					(this.offsetWidth - this.margins * 2) /
+						this._contentDimensions.width,
+					(this.offsetHeight - this.margins * 2) /
+						this._contentDimensions.height,
+				)
+			},
+
+			zoomStep: function (direction, x, y) {
+				const fitZoom = this.getFitZoom()
+				const zoomingIn = direction > 0
+				const currentZoom = this.zoom
+				const nextZoom = zoomingIn
+					? this.getZoomStepAfter(currentZoom)
+					: this.getZoomStepBefore(currentZoom)
+
+				if (
+					zoomingIn &&
+					!this.fit &&
+					currentZoom < fitZoom &&
+					nextZoom >= fitZoom
+				) {
+					this._fitPreviousZoom = currentZoom
+					this.fit = true
+					return
+				}
+
+				if (
+					!zoomingIn &&
+					!this.fit &&
+					currentZoom > fitZoom &&
+					nextZoom <= fitZoom
+				) {
+					this._fitPreviousZoom = nextZoom
+					this.fit = true
+					return
+				}
+
+				const targetZoom =
+					this.fit && !zoomingIn
+						? this._fitPreviousZoom || nextZoom
+						: nextZoom
+				if (this.fit) {
+					this.fit = false
+				}
+				this._zoomInto(
+					x == null ? this.offsetWidth / 2 : x,
+					y == null ? this.offsetHeight / 2 : y,
+					targetZoom,
+				)
+				this._fitPreviousZoom = null
 			},
 
 			// Event listeners
@@ -647,11 +703,11 @@
 					deltaY > 0 ? Math.max(120, deltaY) : Math.min(-120, deltaY)
 
 				if (this.steppedZoom) {
-					const newzoom =
-						deltaY > 0
-							? this.getZoomStepBefore(this.zoom)
-							: this.getZoomStepAfter(this.zoom)
-					this._zoomInto(event.clientX, event.clientY, newzoom)
+					this.zoomStep(
+						deltaY > 0 ? -1 : 1,
+						event.clientX,
+						event.clientY,
+					)
 				} else {
 					const zoomFactor =
 						deltaY > 0 ? 100 / deltaY : -(deltaY / 100)

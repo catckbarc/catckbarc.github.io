@@ -15,11 +15,12 @@
 		created: function () {
 			// Use a new save if autosave is turned off, just so it doesn't clash with
 			// the other saves in case it gets turned back on.
+			// (TODO): not hooked to sketch-app.autosave's default!
 			const settings = JSON.parse(
 				localStorage.getItem("settings") || "{}",
 			)
 			const autosave =
-				settings.autosave == null ? this.autosave : settings.autosave
+				settings.autosave == null ? true : settings.autosave
 			if (!autosave) {
 				this.useNewTab = true
 			}

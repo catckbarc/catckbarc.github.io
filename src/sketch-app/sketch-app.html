@@ -53,6 +53,36 @@
         position: relative;
       }
 
+      .canvas-measurements {
+        color: white;
+        font-size: 12px;
+        font-family: "Jost", "Roboto", "Noto", sans-serif;
+        opacity: 0;
+        pointer-events: none;
+        position: fixed;
+        inset: 0;
+        text-shadow: 0 1px 2px black, 0 -1px 2px black;
+        transition: opacity 220ms ease;
+        z-index: 2;
+      }
+
+      .canvas-measurements.visible {
+        opacity: 1;
+      }
+
+      .canvas-measurements .horizontal {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        white-space: nowrap;
+      }
+
+      .canvas-measurements .vertical {
+        position: absolute;
+        transform: translate(-100%, -50%) rotate(-90deg);
+        transform-origin: right center;
+        white-space: nowrap;
+      }
+
       paper-fab {
         position: absolute;
         bottom: 16px;
@@ -113,15 +143,8 @@
         --paper-menu-button-content: {
           max-height: 300px;
           border-radius: 4px;
-
-          /**
-           * Force a scrollbar to appear all the time.
-           * This is mainly here to help <iron-dropdown> with calculating
-           * the final dropdown width including the scrollbar; without it
-           * (i.e. on `overflow-y: auto`), it's not good at automatically
-           * assuming whether there's gonna be a scrollbar or not.
-           **/
-          overflow-y: scroll !important;
+          overflow-y: auto !important;
+          scrollbar-width: none;
 
           /**
            * Take out any positioning-related offsets caused by
@@ -277,7 +300,26 @@
       }
 
       .settings .settings-item > paper-slider {
-        width: 210px;
+        width: 300px;
+      }
+
+      .tone-spacing-control {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .tone-spacing-control > paper-slider {
+        width: 230px;
+      }
+
+      .tone-spacing-control > paper-input {
+        width: 50px;
+      }
+
+      .settings .settings-item.slider > paper-item-body {
+        min-width: 0;
+        overflow-wrap: anywhere;
       }
 
       .settings .settings-item > paper-dropdown-menu {
@@ -350,6 +392,16 @@
         display: none;
       }
 
+      :host[compact-buttons] .settings .button-row .settings-action-item > div {
+        display: block;
+      }
+
+      :host[compact-buttons] .settings .button-row .settings-action-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
       /* Big settings styles */
 
       .settings-list h3 {
@@ -387,7 +439,7 @@
       }
 
       .settings-list .settings-item > paper-slider {
-        width: 230px;
+        width: 300px;
       }
 
       /* paper-dialog */
@@ -517,7 +569,7 @@
 
       /* Toasts */
 
-      paper-dialog.toast {
+      div.toast {
         position: absolute;
         bottom: 16px;
         margin: 0px 16px;
@@ -532,7 +584,7 @@
         user-select: none;
       }
 
-      paper-dialog.toast > * {
+      div.toast > * {
         display: block;
         margin: 0;
         padding: 12px 16px;
@@ -680,17 +732,13 @@
               tone-pattern="{{tonePattern}}"
               tone-radius="{{toneRadius}}"
               tone-spacing="{{toneSpacing}}"
-              tone-offset-x="{{toneOffsetX}}"
-              tone-offset-y="{{toneOffsetY}}"
               fill-screentone="{{fillScreentone}}"
               eraser-radius="{{eraserRadius}}"
               erase-strokes-setting="{{eraseStrokes}}"
               ignore-touch="{{sketchIgnoreTouch}}"
               time-resolution="{{timeResolution}}"
-              smoothing="{{smoothing}}"
-              noz="{{noz}}"
               animation-speed="{{animationSpeed}}"
-              rendering-style="{{renderingStyle}}"
+              client-style="{{clientstyle}}"
               limited-ink="{{limitedInk}}"
               max-data-length="{{maxDataLength}}"
               on-tool-changed="_closeMenus"
@@ -698,15 +746,16 @@
               flipped="{{sketchFlipped}}"
               disabled="{{sketchDisabled}}"></sketch-canvas>
       </zoom-container>
-      <paper-dialog
+        <div id="canvasMeasurements" class="canvas-measurements">
+          <span class="horizontal"></span>
+          <span class="vertical"></span>
+        </div>
+        <div
           id="alertToast"
           class="toast"
-          tabindex=""
-          exit-animation="fade-out-animation"
-          no-cancel-on-outside-click
-          no-cancel-on-esc-key>
+          hidden>
           <span id="alertToastMessage"></span>
-      </paper-dialog>
+        </div>
       <paper-fab
           title="{{localize('swap')}}"
           icon="send"
@@ -748,7 +797,7 @@
 
     <paper-dialog
         id="captchaDialog"
-        modal
+      with-backdrop
         on-iron-overlay-closed="_onCaptchaDialogClosed"
         on-iron-overlay-opened="_onCaptchaDialogOpened">
         <h2>Swapping</h2>
@@ -1009,7 +1058,7 @@
               <paper-item class="settings-item slider">
                   <paper-item-body two-line>
                       <div>Radius</div>
-                      <div secondary>Brush size, in px</div>
+                      <div secondary>Brush size (px)</div>
                   </paper-item-body>
                   <paper-slider
                       value="{{eraserRadius}}"
@@ -1058,7 +1107,7 @@
               <paper-item class="settings-item slider">
                   <paper-item-body two-line>
                       <div>Angle</div>
-                      <div secondary>Angle of the fill lines, in degrees</div>
+                      <div secondary>Angle of the fill lines</div>
                   </paper-item-body>
                   <paper-slider
                       value="{{fillAngle}}"
@@ -1105,6 +1154,9 @@
                                   icon="handmade:tone-diagonal"></iron-icon>
                               <div>Diagonal</div>
                           </paper-icon-item>
+                              <paper-item value="horizontal">Horizontal</paper-item>
+                              <paper-item value="vertical">Vertical</paper-item>
+                              <paper-item value="cross">Cross</paper-item>
                       </paper-listbox>
                   </paper-dropdown-menu>
               </paper-item>
@@ -1113,36 +1165,22 @@
                       <div>Spacing</div>
                       <div secondary>Space between tones, in px</div>
                   </paper-item-body>
-                  <paper-slider
-                      value="{{toneSpacing}}"
-                      min="2"
-                      max="40"
-                      editable></paper-slider>
+                    <div class="tone-spacing-control">
+                      <paper-slider
+                        value="[[toneSpacingSliderValue]]"
+                        min="2"
+                        max="10"
+                          on-immediate-value-change="_onToneSpacingSliderInput"
+                        on-change="_onToneSpacingSliderChange"></paper-slider>
+                      <paper-input
+                        type="number"
+                        value="{{toneSpacing}}"
+                        min="2"
+                        max="50"
+                          on-change="_onToneSpacingInputChange"
+                        no-label-float></paper-input>
+                    </div>
               </paper-item>
-              <h3>Screentone Offset</h3>
-              <div class="settings-double">
-                  <paper-item class="settings-item slider">
-                      <paper-item-body two-line>
-                          <div>X</div>
-                          <div secondary>(in px)</div>
-                      </paper-item-body>
-                      <paper-slider
-                          value="{{toneOffsetX}}"
-                          min="-20"
-                          max="20"
-                          editable></paper-slider>
-                  </paper-item>
-                  <paper-item class="settings-item slider">
-                      <paper-item-body two-line>
-                          <div>Y</div>
-                          <div secondary>(in px)</div>
-                      </paper-item-body>
-                      <paper-slider
-                          value="{{toneOffsetY}}"
-                          min="-20"
-                          max="20"
-                          editable></paper-slider>
-                  </paper-item>
               </template>
               </div>
           </div>
@@ -1188,22 +1226,34 @@
                                   icon="handmade:tone-diagonal"></iron-icon>
                               <div>Diagonal</div>
                           </paper-icon-item>
+                              <paper-item value="horizontal">Horizontal</paper-item>
+                              <paper-item value="vertical">Vertical</paper-item>
+                              <paper-item value="cross">Cross</paper-item>
                       </paper-listbox>
                   </paper-dropdown-menu>
               </paper-item>
-              <div class="settings-double">
-                  <paper-item class="settings-item slider">
+                <paper-item class="settings-item slider">
                       <paper-item-body two-line>
                           <div>Spacing</div>
                           <div secondary>(in px)</div>
                       </paper-item-body>
-                      <paper-slider
-                          value="{{toneSpacing}}"
-                          min="2"
-                          max="40"
-                          editable></paper-slider>
-                  </paper-item>
-                  <paper-item class="settings-item slider">
+                        <div class="tone-spacing-control">
+                          <paper-slider
+                            value="[[toneSpacingSliderValue]]"
+                            min="2"
+                            max="10"
+                              on-immediate-value-change="_onToneSpacingSliderInput"
+                            on-change="_onToneSpacingSliderChange"></paper-slider>
+                          <paper-input
+                            type="number"
+                            value="{{toneSpacing}}"
+                            min="2"
+                            max="50"
+                              on-change="_onToneSpacingInputChange"
+                            no-label-float></paper-input>
+                        </div>
+                      </paper-item>
+                      <paper-item class="settings-item slider">
                       <paper-item-body two-line>
                           <div>Radius</div>
                           <div secondary>(in px)</div>
@@ -1213,33 +1263,7 @@
                           min="1"
                           max="20"
                           editable></paper-slider>
-                  </paper-item>
-              </div>
-              <h3>Screentone Offset</h3>
-              <div class="settings-double">
-                  <paper-item class="settings-item slider">
-                      <paper-item-body two-line>
-                          <div>X</div>
-                          <div secondary>(in px)</div>
-                      </paper-item-body>
-                      <paper-slider
-                          value="{{toneOffsetX}}"
-                          min="-20"
-                          max="20"
-                          editable></paper-slider>
-                  </paper-item>
-                  <paper-item class="settings-item slider">
-                      <paper-item-body two-line>
-                          <div>Y</div>
-                          <div secondary>(in px)</div>
-                      </paper-item-body>
-                      <paper-slider
-                          value="{{toneOffsetY}}"
-                          min="-20"
-                          max="20"
-                          editable></paper-slider>
-                  </paper-item>
-              </div>
+                      </paper-item>
           </div>
       </paper-menu-button>
       <paper-menu-button
@@ -1265,6 +1289,7 @@
               <section class="button-row">
                 <paper-icon-item
                   class="button-item"
+                  title="Pan canvas"
                   disabled="[[_toolDisabled(sketchDisabled, loading)]]"
                   on-tap="_pan">
                   <iron-icon item-icon icon="mdi:hand-back-right"></iron-icon>
@@ -1274,6 +1299,7 @@
                   <paper-icon-item
                       disabled="[[!ink]]"
                       class="button-item"
+                      title="Play sketch animation"
                       on-tap="_play">
                           <iron-icon item-icon icon="av:play-arrow"></iron-icon>
                           <div>Play sketch animation</div>
@@ -1282,6 +1308,7 @@
               <template is="dom-if" if="[[playing]]">
                   <paper-icon-item
                       class="button-item"
+                      title="Stop sketch animation"
                       on-tap="_stop">
                           <iron-icon item-icon icon="av:stop"></iron-icon>
                           <div>Stop sketch animation</div>
@@ -1289,6 +1316,7 @@
               </template>
               <paper-icon-item
                   class="button-item"
+                  title="Copy sketch data"
                   on-tap="_copy">
                       <iron-icon item-icon icon="content-copy"></iron-icon>
                       <div>Copy sketch data</div>
@@ -1296,6 +1324,7 @@
               <paper-icon-item
                   disabled="[[_clipboardReadTextDisabled]]"
                   class="button-item"
+                  title="Paste sketch data"
                   on-tap="_paste">
                   <iron-icon item-icon icon="content-paste"></iron-icon>
                   <template is="dom-if" if="[[!_clipboardReadTextDisabled]]">
@@ -1312,10 +1341,24 @@
               </paper-icon-item>
               <paper-icon-item
                   class="button-item"
+                  title="Toggle fullscreen"
                   on-tap="_fullscreen">
                   <iron-icon item-icon icon="fullscreen"></iron-icon>
                   <div>Toggle fullscreen</div>
               </paper-icon-item>
+                <paper-icon-item
+                  class="button-item"
+                  title="Set canvas to 800 x 600"
+                  on-tap="_resetCanvasSize">
+                  <iron-icon item-icon icon="aspect-ratio"></iron-icon>
+                  <div>Set canvas to 800 x 600</div>
+                </paper-icon-item>
+                <paper-icon-item
+                  class="button-item settings-action-item"
+                  on-tap="_openSettings">
+                  <iron-icon item-icon icon="settings"></iron-icon>
+                  <div>All settings</div>
+                </paper-icon-item>
               </section>
 
               <hr>
@@ -1323,58 +1366,32 @@
               <paper-item class="settings-item slider">
                   <paper-item-body two-line>
                       <div>Sample rate</div>
-                      <div secondary>Input latency, vector segments length</div>
+                      <div secondary>Input latency (ms)</div>
                   </paper-item-body>
                   <paper-slider
                       value="{{timeResolution}}"
                       min="0"
                       max="50"
                       editable></paper-slider>
-              </paper-item>
-                    <paper-item class="settings-item slider">
-                      <paper-item-body two-line>
-                        <div>Smoothing</div>
-                        <div secondary>Straightens out zigzags and wobbles</div>
-                      </paper-item-body>
-                      <paper-slider
-                        value="{{smoothing}}"
-                        min="0"
-                        max="10"
-                        editable></paper-slider>
                     </paper-item>
-                  <paper-item class="settings-item dropdown">
-                    <paper-item-body two-line>
-                      <div>Rendering styles</div>
-                      <div secondary>How lines are rendered</div>
-                    </paper-item-body>
-                    <paper-dropdown-menu
-                      dynamic-align
-                      no-label-float>
-                      <paper-listbox
-                        class="dropdown-content"
-                        selected="{{renderingStyle}}"
-                        attr-for-selected="value">
-                        <paper-item value="quackbarc-default">Quackbarc default</paper-item>
-                        <paper-item value="quackbarc-modified">Quackbarc modified</paper-item>
-                        <paper-item value="pure-vector">Pure Vector</paper-item>
-                        <paper-item value="mild-vector">Mild Vector</paper-item>
-                      </paper-listbox>
-                    </paper-dropdown-menu>
-                  </paper-item>
-                    <paper-item class="settings-item">
+                    <paper-item class="settings-item dropdown">
                       <paper-item-body two-line>
-                        <div>Noz</div>
-                        <div secondary>Noz client pen mode</div>
+                        <div>Client style</div>
+                        <div secondary>Line drawing behavior</div>
                       </paper-item-body>
-                      <paper-toggle-button checked="{{noz}}" noink></paper-toggle-button>
+                      <paper-dropdown-menu
+                        dynamic-align
+                        no-label-float>
+                        <paper-listbox
+                          class="dropdown-content"
+                          selected="{{clientstyle}}"
+                          attr-for-selected="value">
+                          <paper-item value="quackbarc-default">Quackbarc</paper-item>
+                          <paper-item value="noz-alt">Noz</paper-item>
+                          <paper-item value="sketch-rip">Garyc</paper-item>
+                        </paper-listbox>
+                      </paper-dropdown-menu>
                     </paper-item>
-              <paper-icon-item
-                  class="button-item"
-                  on-tap="_openSettings">
-                  <iron-icon item-icon icon="settings"></iron-icon>
-                  <div>Show all settings</div>
-              </paper-icon-item>
-
               <template is="dom-if" if="[[konami]]">
               <hr>
               <h3>Hidden settings</h3>
@@ -1431,7 +1448,7 @@
           disabled="{{loading}}"
           on-tap="_peek"></paper-icon-button>
       <paper-icon-button
-          title="{{_viewGalleryTitle(localize, peekID)}}"
+          title="{{localize('viewGallery')}}"
           icon="view-module"
           on-tap="_viewGallery"></paper-icon-button>
       <paper-menu-button
@@ -1568,6 +1585,7 @@
         use-captcha="{{useCaptcha}}"
         captcha-u-r-l="{{captchaURL}}"
         on-get="_onGet"
+        on-swap-complete="_onSwapComplete"
         on-swap-failed="_onSwapFailed"
         on-swap-waiting="_onSwapWaiting"></sketch-api>
   </template>
@@ -1722,6 +1740,10 @@
           type: Number,
           computed: "_maxDataLength(gallery)"
         },
+        toneSpacingSliderValue: {
+          type: Number,
+          computed: "_toneSpacingSliderValue(toneSpacing)"
+        },
 
         // settings
 
@@ -1731,27 +1753,23 @@
         },
         toolbarPosition: {
           type: String,
-          value: "bottom",
+          value: "left",
           reflectToAttribute: true,
           observer: "_onUIChange"
         },
         compactButtons: {
           type: Boolean,
-          value: false,
+          value: true,
           reflectToAttribute: true,
           observer: "_onUIChange"
         },
-        renderingStyle: {
+        clientstyle: {
           type: String,
-          value: "quackbarc-default"
+          value: "noz-alt"
         },
-        smoothing: {
+        zoom: {
           type: Number,
-          value: 0
-        },
-        noz: {
-          type: Boolean,
-          value: false
+          observer: "_onZoomChanged",
         },
         backgroundType: {
           type: String,
@@ -1826,14 +1844,25 @@
         return source == "noz.rip" ? 128*1024 - 1 : 64*1024 - 1;
       },
 
-      _flooredInk: function(ink) {
-        return Math.floor(ink*100) / 100;
+      _toneSpacingSliderValue: function(toneSpacing) {
+        return Math.min(10, Math.max(2, Number(toneSpacing) || 2));
       },
 
-      _viewGalleryTitle: function(localize, peekID) {
-        return peekID
-          ? this.localize("viewSketchOnGallery", "id", peekID)
-          : this.localize("viewGallery");
+      _onToneSpacingSliderChange: function(event) {
+        this.set("toneSpacing", event.target.value);
+      },
+
+      _onToneSpacingSliderInput: function(event) {
+        this.set("toneSpacing", event.target.immediateValue);
+      },
+
+      _onToneSpacingInputChange: function(event) {
+        const value = Number(event.target.value);
+        this.set("toneSpacing", Math.min(50, Math.max(2, value || 2)));
+      },
+
+      _flooredInk: function(ink) {
+        return Math.floor(ink*100) / 100;
       },
 
       // Private methods
@@ -1845,10 +1874,28 @@
               history: this.$.sketch.$.data.history,
               head: this.$.sketch.$.data.head
             };
-            localStorage.setItem('save' + this.tabID, JSON.stringify(save));
+            var saveKey = 'save' + this.tabID;
+            var saved = this._trySetLocalStorage(saveKey, JSON.stringify(save));
+            if(!saved) {
+              var lines = this.$.sketch.$.data.lines.map(function(line) {
+                return line.slice();
+              });
+              var compactSave = {
+                history: [[{
+                  start: 0,
+                  added: lines,
+                  removed: []
+                }]],
+                head: 1
+              };
+              this._trySetLocalStorage(saveKey, JSON.stringify(compactSave));
+            }
           }
           else {
-            localStorage.removeItem('save' + this.tabID);
+            try {
+              localStorage.removeItem('save' + this.tabID);
+            }
+            catch(error) {}
           }
         }
 
@@ -1862,21 +1909,17 @@
           fillSpacing: this.$.sketch.fillSpacing,
           fillScreentone: this.$.sketch.fillScreentone,
           tonePattern: this.$.sketch.tonePattern,
-          toneOffsetX: this.$.sketch.toneOffsetX,
-          toneOffsetY: this.$.sketch.toneOffsetY,
           toneRadius: this.$.sketch.toneRadius,
           toneSpacing: this.$.sketch.toneSpacing,
         };
 
-        localStorage.setItem('toolSettings', JSON.stringify(toolSettings));
+        this._trySetLocalStorage('toolSettings', JSON.stringify(toolSettings));
 
         var settings = {
           timeResolution: this.$.sketch.timeResolution,
           timeResolutionLimited: this.$.sketch.timeResolutionLimited,
-          smoothing: this.$.sketch.smoothing,
-          noz: this.noz,
           animationSpeed: this.$.sketch.animationSpeed,
-          renderingStyle: this.renderingStyle,
+          clientstyle: this.clientstyle,
           limitedInk: this.$.sketch.$.data.limitedInk,
           ignoreTouch: this.$.sketch.ignoreTouch,
           autosave: this.autosave,
@@ -1889,7 +1932,17 @@
           enableScrollZooming: this.$.container.enableScrollZooming,
         };
 
-        localStorage.setItem('settings', JSON.stringify(settings));
+        this._trySetLocalStorage('settings', JSON.stringify(settings));
+      },
+
+      _trySetLocalStorage: function(key, value) {
+        try {
+          localStorage.setItem(key, value);
+          return true;
+        }
+        catch(error) {
+          return false;
+        }
       },
 
       _restoreData: function() {
@@ -1900,13 +1953,8 @@
           this._resolveOldEnumSetting(settings, "backgroundType", ["light", "dark"]);
           this._setSetting("timeResolution", settings);
           this._setSetting("timeResolutionLimited", settings);
-          this._setSetting("smoothing", settings, this.$.sketch);
-          this._setSetting("noz", settings);
           this._setSetting("animationSpeed", settings);
-          if (settings.renderingStyle == "vector") {
-            settings.renderingStyle = "pure-vector";
-          }
-          this._setSetting("renderingStyle", settings);
+          this._setSetting("clientstyle", settings);
           this._setSetting("limitedInk", settings);
           this._setSetting("ignoreTouch", settings, this.$.sketch);
           this._setSetting("autosave", settings);
@@ -1939,8 +1987,6 @@
           this._setSetting("fillSpacing", toolSettings);
           this._setSetting("fillScreentone", toolSettings);
           this._setSetting("tonePattern", toolSettings);
-          this._setSetting("toneOffsetX", toolSettings);
-          this._setSetting("toneOffsetY", toolSettings);
           this._setSetting("toneRadius", toolSettings);
           this._setSetting("toneSpacing", toolSettings);
         }
@@ -1990,6 +2036,7 @@
       _onCaptchaDialogOpened: function() {
         // Ignore keybinds while the captcha dialog is open.
         this.target = null;
+        this.$.api.refreshCaptcha();
       },
 
       _onCaptchaDialogClosed: function() {
@@ -2020,6 +2067,9 @@
         this.sketchDisabled = false;
 
         const {swap, captchaFailed, message} = e.detail;
+        if(swap) {
+          this.peekID = null;
+        }
         if(captchaFailed) {
           this.$.captchaDialog.open();
           return this._alert("incorrect captcha!");
@@ -2041,6 +2091,15 @@
 
         // Start playing the animation once the flip gets rendered.
         window.requestAnimationFrame(() => this.$.sketch.play());
+      },
+
+      _onSwapComplete: function(data) {
+        this.peekID = data.detail.id;
+        this.$.sketch.stop();
+        this.$.sketch.data = "";
+        this.$.container.fit = true;
+        this.sketchDisabled = false;
+        this.undoDisabled = false;
       },
 
       _onAlert: function(message) {
@@ -2070,6 +2129,8 @@
       },
 
       __swap: function() {
+        this.peekID = null;
+
         if(this.sketchFlipped) {
           this.$.sketch.$.data.flip();
         }
@@ -2213,12 +2274,7 @@
             break;
         }
 
-        if(this.peekID) {
-          const url = `${baseURL}#${this.peekID}`;
-          window.open(url);
-        } else {
-          window.open(baseURL);
-        }
+        window.open(baseURL);
       },
 
       _save: function() {
@@ -2324,15 +2380,11 @@
       },
 
       _zoomOut: function() {
-        const zoom = this.$.container.zoom;
-        const newZoom = this.$.container.getZoomStepBefore(zoom);
-        this.$.container.zoom = newZoom;
+        this.$.container.zoomStep(-1);
       },
 
       _zoomIn: function() {
-        const zoom = this.$.container.zoom;
-        const newZoom = this.$.container.getZoomStepAfter(zoom);
-        this.$.container.zoom = newZoom;
+        this.$.container.zoomStep(1);
       },
 
       _changeSize: function(e) {
@@ -2388,25 +2440,24 @@
       },
 
       _changeZoom: function(event) {
-        const zoom = this.$.container.zoom;
         let zoomFactor = 1;
-        let zoomStep = zoom;
+        let direction = 0;
 
         switch(event.detail.key) {
           case '-':
           case '_':
             zoomFactor = 7/10;
-            zoomStep = this.$.container.getZoomStepBefore(zoom);
+            direction = -1;
             break;
           case '+':
           case '=':
             zoomFactor = 10/7;
-            zoomStep = this.$.container.getZoomStepAfter(zoom);
+            direction = 1;
             break;
         }
 
         if(this.steppedZoom) {
-          this.$.container.zoom = zoomStep;
+          this.$.container.zoomStep(direction);
         }
         else {
           this.$.container.zoom *= zoomFactor;
@@ -2415,6 +2466,16 @@
 
       _resetZoom: function() {
         this.$.container.fit = true;
+      },
+
+      _resetCanvasSize: function() {
+        const container = this.$.container;
+        container.fit = false;
+        container.position = [0, 0];
+        container.zoom = 1;
+        container._restrictPosition(1);
+        container.__updateViewport();
+        container.notifyResize();
       },
 
       _isPanning: function(tool) {
@@ -2566,13 +2627,13 @@
 
       _alertWithToast: async function(message, ms=3000) {
         this.$.alertToastMessage.innerText = message;
-        this.$.alertToast.open();
+        this.$.alertToast.hidden = false;
 
         let sleepPromise = this._toastSleepPromise = this._sleep(ms);
         await sleepPromise;
 
         if(this._toastSleepPromise === sleepPromise) {
-          this.$.alertToast.close();
+          this.$.alertToast.hidden = true;
         }
       },
 
@@ -2590,6 +2651,83 @@
 
       _openSettings: function() {
         this.$.settings.open();
+      },
+
+      _onZoomChanged: function() {
+        clearTimeout(this._canvasMeasurementsFrame);
+        this._canvasMeasurementsFrame = setTimeout(() => {
+          this._updateCanvasMeasurements();
+        }, 0);
+        clearTimeout(this._canvasMeasurementsTimeout);
+        this.$.canvasMeasurements.style.opacity = "1";
+        this.$.canvasMeasurements.classList.add("visible");
+        this._canvasMeasurementsTimeout = setTimeout(() => {
+          this.$.canvasMeasurements.style.opacity = "0";
+          this.$.canvasMeasurements.classList.remove("visible");
+        }, 700);
+      },
+
+      _updateCanvasMeasurements: function() {
+        if (!this.$.canvasMeasurements || !this.$.sketch) {
+          return;
+        }
+
+        const canvas = this.$.sketch.$.sketchCanvas;
+        const contentRect = this.$.canvasMeasurements.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        const horizontal = this.$.canvasMeasurements.querySelector(".horizontal");
+        const vertical = this.$.canvasMeasurements.querySelector(".vertical");
+
+        horizontal.textContent = `${Math.round(canvasRect.width)} px`;
+        vertical.textContent = `${Math.round(canvasRect.height)} px`;
+
+        const canvasLeft = canvasRect.left - contentRect.left;
+        const canvasTop = canvasRect.top - contentRect.top;
+        const canvasRight = canvasLeft + canvasRect.width;
+        const canvasBottom = canvasTop + canvasRect.height;
+        const padding = 8;
+        const viewportWidth = contentRect.width;
+        const viewportHeight = contentRect.height;
+
+        this.$.canvasMeasurements.style.left = "0px";
+        this.$.canvasMeasurements.style.top = "0px";
+        horizontal.style.left = `${Math.min(
+          Math.max(
+            canvasRect.width > viewportWidth
+              ? viewportWidth / 2
+              : canvasLeft + canvasRect.width / 2,
+            horizontal.offsetWidth / 2 + padding,
+          ),
+          Math.max(padding, viewportWidth - horizontal.offsetWidth - padding),
+        )}px`;
+        horizontal.style.top = `${Math.min(
+          Math.max(
+            canvasRect.height > viewportHeight
+              ? horizontal.offsetHeight / 2
+              : canvasTop - horizontal.offsetHeight / 2,
+            horizontal.offsetHeight / 2,
+          ),
+          Math.max(horizontal.offsetHeight / 2, viewportHeight - horizontal.offsetHeight / 2),
+        )}px`;
+
+        vertical.style.left = `${Math.min(
+          Math.max(
+            canvasRect.width > viewportWidth
+              ? viewportWidth - vertical.offsetHeight / 2 - padding
+              : canvasRight + padding,
+            vertical.offsetHeight + padding,
+          ),
+          Math.max(vertical.offsetHeight + padding, viewportWidth - padding),
+        )}px`;
+        vertical.style.top = `${Math.min(
+          Math.max(
+            canvasRect.height > viewportHeight
+              ? viewportHeight / 2 - vertical.offsetWidth / 2
+              : canvasTop + canvasRect.height / 2 - vertical.offsetWidth / 2,
+            padding,
+          ),
+          Math.max(padding, viewportHeight - vertical.offsetWidth - padding),
+        )}px`;
       },
 
       _closeMenus: function() {

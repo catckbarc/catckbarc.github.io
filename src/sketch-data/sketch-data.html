@@ -286,6 +286,7 @@
 
 				for (var i = this.lines.length - 1; i >= 0; i--) {
 					var line = this.lines[i]
+					const hitRadius = this._isDot(line) ? radius + 1.5 : radius
 
 					for (var j = 0; j < line.length; j += 2) {
 						const vertexHit = this._insideCircle(
@@ -293,7 +294,7 @@
 							line[j + 1],
 							x,
 							y,
-							radius,
+							hitRadius,
 						)
 						const segmentHit =
 							j + 3 < line.length &&
@@ -306,7 +307,7 @@
 								py,
 								x,
 								y,
-								radius,
+								hitRadius,
 							)
 
 						if (vertexHit || segmentHit) {
@@ -472,28 +473,19 @@
 				this._moveDist = { x: 0, y: 0 }
 				this._action = [
 					{
-						start: 0,
-						removed: this.lines.map((line) => line.map((i) => i)),
-						added: this.lines.map((line) => line.map((i) => i)),
+						move: { x: 0, y: 0 },
 					},
 				]
 			},
 
 			move: function (x, y, px, py) {
-				this._action[0].added = this.lines.map((line) => {
-					var moved = []
-
-					for (var i = 0; i < line.length; i += 2) {
-						moved[i] = line[i] + x - px
-						moved[i + 1] = line[i + 1] + y - py
-					}
-
-					return moved
-				})
-
-				this._moveDist.x += x - px
-				this._moveDist.y += y - py
-				this._setLines(this._action[0].added)
+				const dx = x - px
+				const dy = y - py
+				this._moveDist.x += dx
+				this._moveDist.y += dy
+				this._action[0].move.x += dx
+				this._action[0].move.y += dy
+				this._translateLines(dx, dy)
 			},
 
 			moveEnd: function () {
@@ -510,7 +502,6 @@
 
 				if (this.lines.length > 0) {
 					const action = this._action[0]
-					action.added = action.added.slice()
 					this.pushHistory(this._action)
 
 					// Just in case we do mini-moves after this main move
@@ -534,6 +525,15 @@
 					timestamp - this._miniMoveTimestamp < 2000
 				if (sameHeadAction && sameTimestampWindow) {
 					action = headAction
+					if (action[0].move) {
+						action[0].move.x += dx
+						action[0].move.y += dy
+						this._translateLines(dx, dy)
+						this._translateTonePoints(dx, dy)
+						this._miniMoveTimestamp = timestamp
+						this._miniMoveAction = action
+						return
+					}
 				} else {
 					action = [
 						{
@@ -576,7 +576,7 @@
 					[800, 600],
 				]
 				const action = this._action[0]
-				const { pattern, radius, spacing, offX, offY } = options
+				const { pattern, radius, spacing } = options
 
 				const tones = []
 
@@ -585,8 +585,8 @@
 				// credits to noz for the original screentoning algorithm
 
 				// anchoring the loop to start at the nearest possible tone point at the top-left
-				var sX = x - radius - ((x - offX - radius) % spacing)
-				var sY = y - radius - ((y - offY - radius) % spacing)
+				var sX = x - radius - ((x - radius) % spacing)
+				var sY = y - radius - ((y - radius) % spacing)
 				var eX = x + radius
 				var eY = y + radius
 
@@ -605,14 +605,7 @@
 						if (
 							this._within([i, j], rect) &&
 							this._insideCircle(x, y, i, j, radius) &&
-							this._matchesTonePattern(
-								pattern,
-								i,
-								j,
-								offX,
-								offY,
-								spacing,
-							) &&
+							this._matchesTonePattern(pattern, i, j, spacing) &&
 							!this.tonePoints.has(tonepoint)
 						) {
 							this.tonePoints.add(tonepoint)
@@ -661,6 +654,15 @@
 				for (let i = 0; i < this.head; i++) {
 					const actions = this.history[i]
 					for (const action of actions) {
+						if (action.move) {
+							for (const line of newlines) {
+								for (let j = 0; j < line.length; j += 2) {
+									line[j] += action.move.x
+									line[j + 1] += action.move.y
+								}
+							}
+							continue
+						}
 						newlines.splice(
 							action.start,
 							action.removed.length,
@@ -694,12 +696,41 @@
 				this._doAction(event.detail)
 			},
 
+			_translateLines: function (dx, dy) {
+				const translated = this.lines.map(function (line) {
+					const moved = line.slice()
+					for (let i = 0; i < moved.length; i += 2) {
+						moved[i] += dx
+						moved[i + 1] += dy
+					}
+					return moved
+				})
+				this._setLines(translated)
+			},
+
+			_translateTonePoints: function (dx, dy) {
+				const translated = new Set()
+				for (const tone of this.tonePoints) {
+					const [x, y] = tone.split(":")
+					translated.add(`${parseInt(x) + dx}:${parseInt(y) + dy}`)
+				}
+				this._setTonePoints(translated)
+			},
+
 			_doAction: function (action) {
 				var oldLength = this.lines.length
 				let addedLength = 0
 				let removedLength = 0
 
 				for (var i in action) {
+					if (action[i].move) {
+						this._translateLines(action[i].move.x, action[i].move.y)
+						this._translateTonePoints(
+							action[i].move.x,
+							action[i].move.y,
+						)
+						continue
+					}
 					Array.prototype.splice.apply(
 						this.lines,
 						[action[i].start, action[i].removed.length].concat(
@@ -744,6 +775,17 @@
 				var actionR = action.slice(0).reverse()
 
 				for (var i in actionR) {
+					if (actionR[i].move) {
+						this._translateLines(
+							-actionR[i].move.x,
+							-actionR[i].move.y,
+						)
+						this._translateTonePoints(
+							-actionR[i].move.x,
+							-actionR[i].move.y,
+						)
+						continue
+					}
 					Array.prototype.splice.apply(
 						this.lines,
 						[actionR[i].start, actionR[i].added.length].concat(
@@ -863,17 +905,12 @@
 						break
 					}
 					case "tone": {
-						const { limitedInk, tonePattern, offX, offY, spacing } =
-							settings
+						const { limitedInk, tonePattern, spacing } = settings
 
 						lineLoop: for (let i in maskLines) {
 							let line = maskLines[i]
-							if ((line[1] - offY) % spacing == 0) {
-								// shift left by offset, snap to spacing, then shift right by offset
-								let sX =
-									Math.ceil((line[0] - offX) / spacing) *
-										spacing +
-									offX
+							if (line[1] % spacing == 0) {
+								let sX = Math.ceil(line[0] / spacing) * spacing
 
 								toneLoop: for (
 									let x = sX;
@@ -894,8 +931,6 @@
 											tonePattern,
 											x,
 											line[1],
-											offX,
-											offY,
 											spacing,
 										)
 									) {
@@ -1221,22 +1256,15 @@
 				)
 			},
 
-			_matchesTonePattern: function (
-				pattern,
-				x,
-				y,
-				offsetX,
-				offsetY,
-				spacing,
-			) {
+			_matchesTonePattern: function (pattern, x, y, spacing) {
 				switch (pattern) {
 					case "normal": {
 						return true
 					}
 
 					case "diagonal": {
-						let xOddEven = Math.abs(x - offsetX) % (spacing * 2)
-						let yOddEven = Math.abs(y - offsetY) % (spacing * 2)
+						let xOddEven = Math.abs(x) % (spacing * 2)
+						let yOddEven = Math.abs(y) % (spacing * 2)
 						return xOddEven == yOddEven // basically XNOR
 					}
 

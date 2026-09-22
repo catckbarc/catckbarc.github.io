@@ -5,11 +5,15 @@ A fork of **Quackbarc**'s client for noz.rip.
 99.9% of this code was AI coded, this would have been impossible to do from scratch without all the existing foundation, all credit goes to **QB**'s wonderful code
 
 **Notable changes:**
-- UI (tool placement and settings)
-- Vector render option (and more)
-- Brush smoothing slider and Noz's client brush behavior attempt (wip)
-- Minor behavior changes like: Screentone and Eraser no longer skip a step on fast strokes
-- Soulless code
+- menu bug fixes
+- sketches in last 5 minutes update fix
+- wrong captcha request fix
+- Loading... after send fix
+- High move tool local storage usage
+additions:
+- UI changes and additions
+- Noz and Garyc clientstyles, replicates the pointer events similar to respective clients
+- Zoom dimentions display and behavior
 
 ---
 
