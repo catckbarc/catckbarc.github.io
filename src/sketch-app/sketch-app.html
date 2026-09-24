@@ -1,0 +1,3073 @@
+<link rel="import" href="../../bower_components/polymer/polymer.html">
+<link rel="import" href="../../bower_components/app-localize-behavior/app-localize-behavior.html">
+<link rel="import" href="../../bower_components/iron-a11y-keys/iron-a11y-keys.html">
+<link rel="import" href="../../bower_components/iron-flex-layout/iron-flex-layout.html">
+<link rel="import" href="../../bower_components/iron-icons/av-icons.html">
+<link rel="import" href="../../bower_components/iron-icons/editor-icons.html">
+<link rel="import" href="../../bower_components/iron-icons/image-icons.html">
+<link rel="import" href="../../bower_components/iron-icons/iron-icons.html">
+<link rel="import" href="../../bower_components/iron-resizable-behavior/iron-resizable-behavior.html">
+<link rel="import" href="../../bower_components/marked-element/marked-element.html">
+<link rel="import" href="../../bower_components/paper-button/paper-button.html">
+<link rel="import" href="../../bower_components/paper-dialog-scrollable/paper-dialog-scrollable.html">
+<link rel="import" href="../../bower_components/paper-dialog/paper-dialog.html">
+<link rel="import" href="../../bower_components/paper-dropdown-menu/paper-dropdown-menu.html">
+<link rel="import" href="../../bower_components/paper-fab/paper-fab.html">
+<link rel="import" href="../../bower_components/paper-icon-button/paper-icon-button.html">
+<link rel="import" href="../../bower_components/paper-item/paper-icon-item.html">
+<link rel="import" href="../../bower_components/paper-item/paper-item-body.html">
+<link rel="import" href="../../bower_components/paper-item/paper-item.html">
+<link rel="import" href="../../bower_components/paper-input/paper-input.html">
+<link rel="import" href="../../bower_components/paper-listbox/paper-listbox.html">
+<link rel="import" href="../../bower_components/paper-menu-button/paper-menu-button.html">
+<link rel="import" href="../../bower_components/paper-progress/paper-progress.html">
+<link rel="import" href="../../bower_components/paper-slider/paper-slider.html">
+<link rel="import" href="../../bower_components/paper-styles/shadow.html">
+<link rel="import" href="../../bower_components/paper-toggle-button/paper-toggle-button.html">
+<link rel="import" href="../../bower_components/paper-toolbar/paper-toolbar.html">
+<link rel="import" href="../handmade-svg/handmade-svg.html">
+<link rel="import" href="../mdi/mdi.html">
+<link rel="import" href="../sketch-api/sketch-api.html">
+<link rel="import" href="../sketch-canvas/sketch-canvas.html">
+<link rel="import" href="../sketch-tabs/sketch-tabs.html">
+<link rel="import" href="../zoom-container/zoom-container.html">
+
+<dom-module id="sketch-app">
+  <template>
+    <style>
+      /* General styles */
+
+      :host {
+        @apply(--layout-fit);
+        @apply(--layout-vertical);
+        --paper-slider-height: 4px;
+        --paper-item-body-two-line-min-height: 0px;
+
+        /* Prevents the app from being selectable by tablet pens and iOS Safari. */
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      .content {
+        flex-grow: 1;
+        position: relative;
+      }
+
+      #sendCelebration {
+        align-items: center;
+        display: flex;
+        inset: 0;
+        justify-content: center;
+        pointer-events: none;
+        position: absolute;
+        z-index: 3;
+      }
+
+      #sendCelebration::before,
+      #sendCelebration::after {
+        border: 2px solid #000;
+        border-radius: 50%;
+        content: "";
+        height: 120px;
+        position: absolute;
+        width: 120px;
+      }
+
+      #sendCelebration::before {
+        animation: send-celebration-ring 700ms ease-out both;
+      }
+
+      #sendCelebration::after {
+        animation: send-celebration-flash 700ms ease-out both;
+        background: #000;
+        border: 0;
+      }
+
+      #sendCelebration img {
+        animation: send-celebration-image 1000ms ease-out both;
+        filter: grayscale(1) contrast(1.2);
+        height: min(192px, 35vw);
+        object-fit: contain;
+        position: relative;
+        width: min(192px, 35vw);
+        z-index: 1;
+      }
+
+      @keyframes send-celebration-flash {
+        0% { opacity: .85; transform: scale(.2); }
+        45% { opacity: .15; transform: scale(1.2); }
+        100% { opacity: 0; transform: scale(1.8); }
+      }
+
+      @keyframes send-celebration-ring {
+        0% { opacity: 0; transform: scale(.35); }
+        20% { opacity: 1; }
+        100% { opacity: 0; transform: scale(2.4); }
+      }
+
+      @keyframes send-celebration-image {
+        0% { opacity: 0; }
+        35% { opacity: 1; }
+        70% { opacity: 1; }
+        100% { opacity: 0; }
+      }
+
+      .canvas-measurements {
+        color: white;
+        font-size: 12px;
+        font-family: "Jost", "Roboto", "Noto", sans-serif;
+        opacity: 0;
+        pointer-events: none;
+        position: fixed;
+        inset: 0;
+        text-shadow: 0 1px 2px black, 0 -1px 2px black;
+        transition: opacity 220ms ease;
+        z-index: 2;
+      }
+
+      .canvas-measurements.visible {
+        opacity: 1;
+      }
+
+      .canvas-measurements .horizontal {
+        position: absolute;
+        transform: translate(-50%, -50%);
+        white-space: nowrap;
+      }
+
+      .canvas-measurements .vertical {
+        position: absolute;
+        transform: translate(-100%, -50%) rotate(-90deg);
+        transform-origin: right center;
+        white-space: nowrap;
+      }
+
+      paper-fab {
+        position: absolute;
+        bottom: 16px;
+        right: 16px;
+      }
+
+      zoom-container {
+        /**
+         * Prevent stock browser gestures on the canvas's background.
+         * Don't want that to be a looming threat while drawing.
+         */
+        touch-action: none;
+      }
+
+      /* Toolbar styles */
+
+      paper-toolbar paper-progress.fit {
+        top: 0;
+      }
+
+      paper-toolbar .title {
+        pointer-events: auto; /* allows tooltips when hovered on */
+        margin: 0;
+      }
+      .title span {
+        margin: 0px 8px;
+        font-size: 20px;
+        font-family: "Jost", "Roboto", "Noto", sans-serif;
+        line-height: normal;
+      }
+      .title .stats {
+        display: inline-block;
+      }
+
+      /* for hideStats */
+
+      .title {
+        display: flex;
+      }
+      .title .stats {
+        margin-left: auto;
+      }
+      .title .stats span {
+        /* really dumb workaround */
+        margin-left: 3px;
+      }
+
+      paper-icon-button[toggles]:not([active]),
+      paper-icon-button[disabled],
+      paper-menu-button[disabled] {
+        color: var(--dark-primary-color);
+      }
+
+      paper-menu-button {
+        padding: 0;
+      }
+      paper-toolbar paper-menu-button {
+        --paper-menu-button-content: {
+          max-height: 300px;
+          border-radius: 4px;
+          overflow-y: auto !important;
+          scrollbar-width: none;
+
+          /**
+           * Take out any positioning-related offsets caused by
+           * [vertical-align="bottom"].
+           **/
+          bottom: 0 !important;
+          margin-top: 0 !important;
+          margin-bottom: 0 !important;
+        };
+      }
+
+      #mini-stats {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+
+        align-self: stretch;
+        flex: 0 0 auto;
+
+        margin: 8px 0;
+        overflow: hidden;
+      }
+
+      .mini-stats-block {
+        width: min-content;
+        box-sizing: border-box;
+        min-width: 40px;
+
+        padding: 0px 4px;
+        border-radius: 3px;
+        border: 1px solid #fff;
+
+        font-family: "Jost", "Roboto", "Noto", sans-serif;
+        font-size: 16px;
+        text-align: center;
+      }
+
+      .mini-stats-block.white {
+        background-color: #fff;
+        color: var(--primary-color);
+      }
+
+      #toolbar.alertOnly paper-icon-button,
+      #toolbar.alertOnly paper-menu-button,
+      #toolbar.alertOnly .title > *:not(#alert) {
+        display: none;
+      }
+
+      /* Settings styles */
+
+      iron-icon.flipped {
+        transform: scaleX(-1);
+      }
+
+      paper-toggle-button {
+        /* Remove the spacing dedicated to labels within the button */
+        --paper-toggle-button-label-spacing: 0px;
+      }
+
+      paper-dropdown-menu {
+        --paper-input-container-input: {
+            padding: 0px 4px;
+            cursor: pointer;
+        };
+      }
+
+      paper-dropdown-menu paper-item,
+      paper-dropdown-menu paper-icon-item {
+        cursor: pointer;
+
+        padding: 8px 16px;
+        min-height: 0px;
+        max-width: 300px;
+      }
+
+      paper-item,
+      paper-icon-item {
+        padding: 8px 16px;
+        min-height: 24px;
+        min-width: 180px;
+
+        display: flex;
+        gap: 16px;
+      }
+
+      paper-icon-item {
+        /* Remove the icons' stock width of 56px */
+        --paper-item-icon-width: auto;
+      }
+
+      paper-icon-item.button-item {
+        cursor: pointer;
+      }
+
+      paper-item-body [secondary] {
+        white-space: normal;
+      }
+
+      .settings, .menu {
+        font-family: 'Roboto', 'Noto', sans-serif;
+        font-size: 16px;
+        color: #000;
+        padding: 8px;
+        width: min-content;
+
+        /**
+         * Re-allow selections from tablet pens and iOS Safari.
+         * It's text, so why not?
+         */
+        -webkit-user-select: text;
+        user-select: text;
+      }
+
+      .settings h3,
+      .menu h3 {
+        text-transform: uppercase;
+        color: #aaa;
+        font-size: 14px;
+        letter-spacing: 2px;
+
+        padding: 12px 16px 4px;
+        margin: 0px;
+      }
+
+      .settings h3.actions-heading {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .settings hr {
+        border: none;
+        border-top: 1px solid #ccc;
+      }
+
+      .settings paper-icon-button[disabled] {
+        color: var(--disabled-text-color);
+      }
+
+      .settings .settings-item {
+        display: flex;
+        align-items: center;
+        gap: 16px;
+
+        min-width: 400px;
+        max-width: 450px;
+      }
+
+      .settings .settings-item > div:first-child,
+      .settings .settings-item > paper-item-body {
+        flex: 1;
+      }
+
+      .settings .settings-item > paper-slider {
+        width: 300px;
+      }
+
+      .tone-spacing-control {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .tone-spacing-control > paper-slider {
+        width: 230px;
+      }
+
+      .tone-spacing-control > paper-input {
+        width: 50px;
+      }
+
+      .settings .settings-item.slider > paper-item-body {
+        min-width: 0;
+        overflow-wrap: anywhere;
+      }
+
+      .settings .settings-item > paper-dropdown-menu {
+        width: 195px;
+      }
+
+      .tone-pattern-icon {
+        flex: none;
+        margin-right: 8px;
+      }
+
+      .settings .settings-double {
+        display: flex;
+        min-width: 410px;
+        max-width: 450px;
+      }
+
+      .settings .settings-double .settings-item {
+        flex: 1;
+
+        min-width: 0;
+        gap: 8px;
+      }
+
+      .settings-double .settings-item > div,
+      .settings-double .settings-item > paper-item-body {
+        flex: 0 1 auto;
+      }
+
+      .settings-double .settings-item > paper-slider {
+        flex: 1 0 auto;
+
+        width: 100px;
+        max-width: 210px;
+      }
+
+      .settings .settings-double .settings-item:first-child {
+        padding-right: 12px;
+      }
+
+      .settings .settings-double .settings-item:last-child {
+        padding-left: 12px;
+      }
+
+      .zoom-buttons {
+        display: flex;
+        gap: 8px;
+      }
+
+      .zoom-buttons paper-input {
+        text-align: center;
+        width: 4.5rem;
+      }
+
+      :host[compact-buttons] .settings .button-row {
+        display: flex;
+        justify-content: center;
+
+        padding: 0px 10px;
+      }
+
+      :host[compact-buttons] .settings .button-row .button-item {
+        display: inline-block;
+        min-width: unset;
+        min-height: unset;
+
+        padding: 8px;
+      }
+
+      :host[compact-buttons] .settings .button-row .button-item > * {
+        /**
+         * The * selector here applies to everything except the icon.
+         * The icon is under <paper-icon-item>'s scope.
+         */
+        display: none;
+      }
+
+      :host[compact-buttons] .settings .button-row .settings-action-item > div {
+        display: block;
+      }
+
+      :host[compact-buttons] .settings .button-row .settings-action-item {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      /* Big settings styles */
+
+      .settings-list h3 {
+        text-transform: uppercase;
+        color: #aaa;
+        font-size: 14px;
+        letter-spacing: 2px;
+
+        padding: 16px 8px 4px;
+        margin: 0px;
+      }
+
+      .settings-list h3:first-child {
+        padding-top: 8px;
+      }
+
+      .settings-list hr {
+        border: none;
+        border-top: 1px solid #ccc;
+      }
+
+      .settings-list .settings-item {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+
+        padding: 10px 8px;
+        min-height: 48px;
+        min-width: 300px;
+        max-width: none;
+      }
+
+      .settings-list .settings-item > paper-dropdown-menu {
+        width: 215px;
+      }
+
+      .settings-list .settings-item > paper-slider {
+        width: 300px;
+      }
+
+      /* paper-dialog */
+
+      paper-dialog {
+        overflow-wrap: anywhere;
+        font-size: 16px;
+        margin: 24px 16px;
+        border-radius: 4px;
+
+        /**
+         * (max viewport width - the 16px side margins)
+         * I don't think there's any other way to make a container
+         * with a base width that can shrink down to fit the viewport
+         * while still respecting margins.
+         **/
+        max-width: calc(100% - 32px);
+        width: 600px;
+
+        -webkit-user-select: text;
+        user-select: text;
+      }
+
+      paper-dialog > h2 {
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        font-size: 24px;
+
+        /* Revert paper-dialog's styling of `nowrap` */
+        white-space: normal;
+      }
+
+      paper-dialog .markdown-html hr {
+        border: none;
+        border-top: 1px solid #ccc;
+      }
+
+      paper-dialog .markdown-html li {
+        margin-block: 0.25em;
+      }
+
+      paper-dialog .markdown-html img {
+        width: 100%;
+      }
+
+      paper-dialog .markdown-html h3 {
+        margin: 1em 0px 0.5em;
+      }
+
+      paper-dialog .markdown-html table {
+        width: 100%;
+        max-width: 600px;
+        table-layout: fixed;
+        border-spacing: 1em 0.5em;
+        line-height: 1.2em;
+      }
+
+      paper-dialog .markdown-html table th:nth-child(1) {
+        width: 30%;
+      }
+
+      paper-input {
+        min-height: 48px;
+      }
+
+      #keybindDialog code {
+        background-color: #0001;
+        padding: 2px 5px;
+        border: 2px solid #0003;
+        border-radius: 5px;
+      }
+
+      #changelogs hr.version-separator {
+        margin: 2em 0;
+      }
+
+      #changelogs h1.version-name {
+        text-align: center;
+        font-family: "Jost", "Roboto", "Noto", sans-serif;
+        margin-block-end: 0;
+      }
+
+      #changelogs p:has(.version-timestamp) {
+        text-align: center;
+      }
+
+      #changelogs img {
+        @apply(--shadow-elevation-2dp);
+      }
+
+      #captchaDialog {
+        width: 350px;
+      }
+
+      #captchaDialog paper-button {
+        --paper-button: {
+          min-width: 0;
+        };
+      }
+
+      #captchaDialog .captcha-card {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+
+      #captchaDialog .captcha-card img {
+        @apply(--shadow-elevation-2dp);
+
+        width: 100%;
+        aspect-ratio: 15/4;
+      }
+
+      #captchaDialog .captcha-card paper-input {
+        flex: 1;
+        width: 100%;
+
+        --paper-input-container-input: {
+          @apply(--paper-font-common-code);
+        }
+      }
+
+      #captchaDialog .inverted {
+        filter: invert(1);
+      }
+
+      /* Toasts */
+
+      div.toast {
+        position: absolute;
+        bottom: 16px;
+        margin: 0px 16px;
+
+        background-color: #111;
+        color: #fff;
+        border-radius: 4px;
+        width: fit-content;
+
+        font-family: "Jost", "Roboto", "Noto", sans-serif;
+        font-size: 1.3em;
+        user-select: none;
+      }
+
+      div.toast > * {
+        display: block;
+        margin: 0;
+        padding: 12px 16px;
+      }
+
+      /* paper-menu-button sizing fix */
+
+      #toolbar paper-menu-button {
+        box-sizing: border-box;
+        width: 40px;
+        height: 40px;
+        padding: 0px;
+        /* properly center paper-icons on chrome.
+           the problem actually lies in #trigger's height but there's
+           no mix-in for that */
+        display: flex;
+      }
+      #toolbar paper-menu-button paper-icon-button.dropdown-trigger {
+        box-sizing: border-box;
+        padding: 8px;
+        width: 100%;
+        height: 100%;
+      }
+
+      /* Toolbar positioning styles */
+
+      :host[toolbar-position="top"],
+      :host[toolbar-position="bottom"] {
+        --paper-toolbar-height: 48px;
+        --paper-toolbar-sm-height: 48px;
+      }
+
+      :host[toolbar-position="left"],
+      :host[toolbar-position="right"] {
+        --vertical-toolbar-width: 48px;
+
+        --paper-toolbar-height: 100dvh;
+        --paper-toolbar-sm-height: 100dvh;
+
+        --paper-toolbar-content: {
+          flex-direction: column;
+
+          box-sizing: border-box;
+          width: var(--vertical-toolbar-width);
+          padding: 16px 0px;
+
+          overflow-y: auto;
+          scrollbar-width: none;
+        };
+      }
+
+      :host[toolbar-position="top"] {
+        flex-direction: column-reverse;
+      }
+
+      :host[toolbar-position="left"] {
+        flex-direction: row-reverse;
+      }
+
+      :host[toolbar-position="right"] {
+        flex-direction: row;
+      }
+
+      :host[toolbar-position="left"] paper-toolbar paper-progress,
+      :host[toolbar-position="right"] paper-toolbar paper-progress {
+        inset: auto;
+
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+      }
+
+      :host[toolbar-position="left"] .title span,
+      :host[toolbar-position="right"] .title span {
+        display: none;
+      }
+
+      :host[toolbar-position="top"] #mini-stats,
+      :host[toolbar-position="bottom"] #mini-stats {
+        display: none;
+      }
+
+      /* Media queries */
+
+      @media (max-width: 600px) {
+        .settings-list h3,
+        .settings-list .settings-item {
+          padding-left: 4px;
+          padding-right: 4px;
+        }
+
+        .settings-list .settings-item paper-dropdown-menu {
+          width: 150px;
+        }
+
+        .settings-list .settings-item paper-slider {
+          width: 165px;
+        }
+
+        paper-dialog ul ul {
+          /* Remove stock indentation of nested <ul>s */
+          padding: 0;
+        }
+
+        :host[toolbar-position="left"],
+        :host[toolbar-position="right"] {
+          --vertical-toolbar-width: 48px;
+        }
+
+        /* Slightly larger toolbar icons on top/bottom docks */
+        :host[toolbar-position="top"] #toolbar paper-menu-button,
+        :host[toolbar-position="bottom"] #toolbar paper-menu-button {
+          padding: 0px;
+        }
+
+        :host[toolbar-position="top"] #toolbar paper-icon-button,
+        :host[toolbar-position="bottom"] #toolbar paper-icon-button {
+          padding: 6px;
+        }
+      }
+    </style>
+
+    <div class="content">
+      <zoom-container
+          id="container"
+          dimensions="800/600"
+          pannable="{{pannable}}"
+          panning="{{panning}}"
+          zoom="{{zoom}}"
+          percent-zoom="{{percentZoom}}"
+          stepped-zoom="{{steppedZoom}}"
+          enable-scroll-zooming="{{enableScrollZooming}}">
+          <sketch-canvas
+              id="sketch"
+              ink="{{ink}}"
+              tool="{{tool}}"
+              playing="{{playing}}"
+              can-undo="{{canUndo}}"
+              can-redo="{{canRedo}}"
+              etch-mode="{{etchMode}}"
+              line-step="{{lineStep}}"
+              fill-angle="{{fillAngle}}"
+              fill-spacing="{{fillSpacing}}"
+              tone-pattern="{{tonePattern}}"
+              tone-radius="{{toneRadius}}"
+              tone-spacing="{{toneSpacing}}"
+              pixel-brush="{{pixelBrush}}"
+              fill-screentone="{{fillScreentone}}"
+              eraser-radius="{{eraserRadius}}"
+              erase-strokes-setting="{{eraseStrokes}}"
+              erase-screentone-only="{{eraseScreentoneOnly}}"
+              ignore-touch="{{sketchIgnoreTouch}}"
+              time-resolution="{{timeResolution}}"
+              animation-speed="{{animationSpeed}}"
+              client-style="{{clientstyle}}"
+              limited-ink="{{limitedInk}}"
+              max-data-length="{{maxDataLength}}"
+              on-tool-changed="_closeMenus"
+              drawing="{{drawing}}"
+              flipped="{{sketchFlipped}}"
+              disabled="{{sketchDisabled}}"></sketch-canvas>
+      </zoom-container>
+        <div id="canvasMeasurements" class="canvas-measurements">
+          <span class="horizontal"></span>
+          <span class="vertical"></span>
+        </div>
+        <div
+          id="alertToast"
+          class="toast"
+          hidden>
+          <span id="alertToastMessage"></span>
+        </div>
+        <div id="sendCelebration" hidden="{{!sendCelebration}}" aria-hidden="true">
+          <img
+              src="../../assets/pwa-icon_192x192.png"
+              alt=""
+              on-animationend="_onSendCelebrationAnimationEnd">
+        </div>
+      <paper-fab
+          title="{{localize('swap')}}"
+          icon="send"
+          hidden="{{hideSwap}}"
+          disabled="{{swapDisabled}}"
+          on-tap="_swap"></paper-fab>
+    </div>
+
+    <paper-dialog id="keybindDialog" with-backdrop>
+        <h2>Keyboard shortcuts and controls</h2>
+        <paper-dialog-scrollable>
+            <marked-element>
+                <div class="markdown-html"></div>
+                <script type="text/markdown" src="./keybinds.md"></script>
+            </marked-element>
+        </paper-dialog-scrollable>
+        <div class="buttons">
+            <paper-button dialog-dismiss autofocus>Close</paper-button>
+        </div>
+    </paper-dialog>
+
+    <paper-dialog id="changelogs" with-backdrop>
+        <h2>Changelogs</h2>
+        <paper-dialog-scrollable>
+            <marked-element id="changelogsContent">
+                <div class="markdown-html"></div>
+                <!-- Placeholder text while we're fetching changelogs -->
+                <script type="text/markdown">
+                    No changes. None of them. This client has always been like this.
+                    Nothing's changed, because it's always been the same.
+                    If you really think anything's changed, you might have to ask God.
+                </script>
+            </marked-element>
+        </paper-dialog-scrollable>
+        <div class="buttons">
+            <paper-button dialog-dismiss autofocus>Close</paper-button>
+        </div>
+    </paper-dialog>
+
+    <paper-dialog
+        id="captchaDialog"
+      with-backdrop
+        on-iron-overlay-closed="_onCaptchaDialogClosed"
+        on-iron-overlay-opened="_onCaptchaDialogOpened">
+        <h2>Swapping</h2>
+        <paper-dialog-scrollable>
+            <div class="captcha-card">
+                <img id="captchaImage" src="[[captchaURL]]" alt="A noz.rip CAPTCHA.">
+                <paper-input
+                    id="captcha"
+                    value="{{captchaPhrase::input}}"
+                    maxlength="5"
+                    required
+                    autofocus
+                    auto-validate
+                    no-label-float
+                    placeholder="Enter captcha"
+                    error-message="This field must be filled!"></paper-input>
+            </div>
+            <p>Before swapping to noz.rip, you must first fill out the captcha.</p>
+        </paper-dialog-scrollable>
+        <div class="buttons">
+            <paper-button
+                class="icon"
+                title="Invert"
+                on-tap="_invertCaptcha">
+                <iron-icon item-icon icon="invert-colors"></iron-icon>
+            </paper-button>
+            <paper-button dialog-dismiss>Back</paper-button>
+            <paper-button
+                on-tap="_submitCaptcha"
+                dialog-confirm>Swap</paper-button>
+        </div>
+    </paper-dialog>
+
+    <paper-dialog id="settings" with-backdrop>
+        <h2>Settings</h2>
+        <paper-dialog-scrollable class="settings-list">
+            <h3>General</h3>
+          <paper-icon-item
+            class="button-item"
+            on-tap="_openKeybindMenu">
+            <iron-icon item-icon icon="font-download"></iron-icon>
+            <div>Open keyboard shortcuts menu</div>
+          </paper-icon-item>
+          <paper-icon-item
+            class="button-item"
+            on-tap="_openChangelogs">
+            <iron-icon item-icon icon="mdi:list-box-outline"></iron-icon>
+            <div>Open changelogs</div>
+          </paper-icon-item>
+            <paper-item class="settings-item">
+                <paper-item-body two-line>
+                    <div>Toggle tool settings with keybind</div>
+                    <div secondary>
+                        Whether tool keybinds should open/close their
+                        respective tools' settings or not.
+                    </div>
+                </paper-item-body>
+                <paper-toggle-button
+                    checked="{{keybindToggling}}"
+                    noink></paper-toggle-button>
+            </paper-item>
+            <paper-item class="settings-item">
+                <paper-item-body two-line>
+                    <div>Automatically save sketch and history</div>
+                    <div secondary>
+                        Whether sketches and undo history should be autosaved
+                        and restored on a new tab, or not.
+                    </div>
+                </paper-item-body>
+                <paper-toggle-button
+                    checked="{{autosave}}"
+                    noink></paper-toggle-button>
+            </paper-item>
+            <paper-item class="settings-item">
+                <paper-item-body two-line>
+                    <div>Prevent drawing past ink limit</div>
+                    <div secondary>
+                      Note: Even if this is turned off, swapping will still
+                      clip the sketch to 100%.
+                    </div>
+                </paper-item-body>
+                <paper-toggle-button
+                    checked="{{limitedInk}}"
+                    noink></paper-toggle-button>
+            </paper-item>
+            <paper-item class="settings-item">
+                <paper-item-body two-line>
+                    <div>Ignore touch inputs</div>
+                    <div secondary>
+                        Whether finger taps on the canvas should be ignored
+                        or not. Useful for tablet users using EMR styluses.
+                    </div>
+                </paper-item-body>
+                <paper-toggle-button
+                    checked="{{sketchIgnoreTouch}}"
+                    noink></paper-toggle-button>
+            </paper-item>
+            <paper-item class="settings-item">
+                <paper-item-body two-line>
+                    <div>Enable scroll zooming</div>
+                    <div secondary>
+                        Whether scrolling on the canvas should zoom it in or
+                        not. Disable this if your device has its own zooming
+                        powered by scrolling, e.g. some laptop touchpads.
+                    </div>
+                </paper-item-body>
+                <paper-toggle-button
+                    checked="{{enableScrollZooming}}"
+                    noink></paper-toggle-button>
+            </paper-item>
+            <paper-item class="settings-item dropdown">
+                <paper-item-body two-line>
+                    <div>Gallery</div>
+                    <div secondary>The gallery to swap sketches onto.</div>
+                </paper-item-body>
+                <paper-dropdown-menu
+                    dynamic-align
+                    no-label-float>
+                    <paper-listbox
+                        class="dropdown-content"
+                        selected="{{gallery}}"
+                        attr-for-selected="value">
+                        <paper-item value="garyc.me">garyc.me</paper-item>
+                        <paper-item value="noz.rip">noz.rip</paper-item>
+                    </paper-listbox>
+                </paper-dropdown-menu>
+            </paper-item>
+
+            <hr>
+            <h3>App appearance</h3>
+            <paper-item class="settings-item dropdown">
+                <paper-item-body two-line>
+                    <div>Background</div>
+                    <div secondary>Page background of the app</div>
+                </paper-item-body>
+                <paper-dropdown-menu
+                    dynamic-align
+                    no-label-float>
+                    <paper-listbox
+                        class="dropdown-content"
+                        selected="{{backgroundType}}"
+                        attr-for-selected="value">
+                        <paper-item value="light">Light</paper-item>
+                        <paper-item value="dark">Dark</paper-item>
+                    </paper-listbox>
+                </paper-dropdown-menu>
+            </paper-item>
+            <paper-item class="settings-item dropdown">
+                <paper-item-body two-line>
+                    <div>Toolbar position</div>
+                    <div secondary>Where the toolbar should be docked on</div>
+                </paper-item-body>
+                <paper-dropdown-menu
+                    dynamic-align
+                    no-label-float>
+                    <paper-listbox
+                        class="dropdown-content"
+                        selected="{{toolbarPosition}}"
+                        attr-for-selected="value">
+                        <paper-item value="top">Top</paper-item>
+                        <paper-item value="left">Left</paper-item>
+                        <paper-item value="right">Right</paper-item>
+                        <paper-item value="bottom">Bottom</paper-item>
+                    </paper-listbox>
+                </paper-dropdown-menu>
+            </paper-item>
+            <paper-item class="settings-item slider">
+                <paper-item-body two-line>
+                    <div>Animation speed</div>
+                    <div secondary>
+                        How fast sketches would be played back
+                        on peeks and swaps
+                    </div>
+                </paper-item-body>
+                <paper-slider
+                    value="{{animationSpeed}}"
+                    min="5"
+                    max="30"
+                    editable></paper-slider>
+            </paper-item>
+            <paper-item class="settings-item">
+                <paper-item-body two-line>
+                    <div>Hide swap button</div>
+                    <div secondary>Note: Swapping can still be done with Ctrl+Enter.</div>
+                </paper-item-body>
+                <paper-toggle-button
+                    checked="{{hideSwap}}"
+                    noink></paper-toggle-button>
+            </paper-item>
+        </paper-dialog-scrollable>
+        <div class="buttons">
+            <paper-button dialog-dismiss autofocus>Close</paper-button>
+        </div>
+    </paper-dialog>
+
+    <paper-toolbar id="toolbar">
+      <paper-progress
+          class="fit"
+          hidden="{{!loading}}"
+          indeterminate></paper-progress>
+
+      <paper-icon-button
+          title="{{localize('reset')}}"
+          icon="delete"
+          disabled="{{_resetDisabled(sketchDisabled, loading, canUndo, ink)}}"
+          on-tap="_reset"></paper-icon-button>
+        <paper-icon-button
+          title="Flip canvas horizontally"
+          disabled="{{sketchDisabled}}"
+          icon="image:flip"
+          active="[[sketchFlipped]]"
+          on-tap="_flip"></paper-icon-button>
+      <paper-icon-button
+          title="{{localize('undo')}}"
+          icon="undo"
+          disabled="{{_undoDisabled(sketchDisabled, loading, canUndo, undoDisabled)}}"
+          on-tap="_undo"></paper-icon-button>
+      <paper-icon-button
+          title="{{localize('redo')}}"
+          icon="redo"
+          disabled="{{_editDisabled(loading, canRedo)}}"
+          on-tap="_redo"></paper-icon-button>
+        <paper-icon-button
+          title="{{localize('move')}}"
+          icon="mdi:cursor-move"
+          disabled="{{_toolDisabled(sketchDisabled, loading)}}"
+          active="{{_isMoving(tool)}}"
+          toggles="{{!_isMoving(tool)}}"
+          on-tap="_move"></paper-icon-button>
+      <paper-menu-button
+          id="menuEraser"
+          disabled="{{_toolDisabled(sketchDisabled, loading)}}"
+          dynamic-align
+          allow-outside-scroll
+          vertical-align="bottom"
+          vertical-offset="48"
+          on-opened-changed="_erase">
+          <paper-icon-button
+              class="dropdown-trigger"
+              title="{{localize('eraser')}}"
+              icon="mdi:eraser-variant"
+              active="{{_isErasing(tool)}}"
+              toggles="{{!_isErasing(tool)}}"></paper-icon-button>
+          <div class="dropdown-content settings">
+              <h3>Eraser</h3>
+              <paper-item class="settings-item">
+                  <paper-item-body two-line>
+                      <div>Erase strokes</div>
+                      <div secondary>
+                        Erases entire lines instead of line corners. Holding
+                        down Shift while erasing also activates this.
+                      </div>
+                  </paper-item-body>
+                  <paper-toggle-button
+                      checked="{{eraseStrokes}}"
+                      noink></paper-toggle-button>
+              </paper-item>
+                  <paper-item class="settings-item">
+                    <paper-item-body two-line>
+                      <div>Erase screentone only</div>
+                      <div secondary>Leaves pen and pixel-brush strokes untouched.</div>
+                    </paper-item-body>
+                    <paper-toggle-button
+                      checked="{{eraseScreentoneOnly}}"
+                      noink></paper-toggle-button>
+                  </paper-item>
+              <paper-item class="settings-item slider">
+                  <paper-item-body two-line>
+                      <div>Radius</div>
+                      <div secondary>Brush size (px)</div>
+                  </paper-item-body>
+                  <paper-slider
+                      value="{{eraserRadius}}"
+                      min="1"
+                      max="50"
+                      editable></paper-slider>
+              </paper-item>
+          </div>
+      </paper-menu-button>
+        <paper-menu-button
+          id="menuPen"
+          disabled="{{_toolDisabled(sketchDisabled, loading)}}"
+          dynamic-align
+          allow-outside-scroll
+          vertical-align="bottom"
+          vertical-offset="48"
+          on-opened-changed="_draw">
+          <paper-icon-button
+            class="dropdown-trigger"
+            title="{{localize('pen')}}"
+            icon="create"
+            active="{{_isDrawing(tool)}}"
+            toggles="{{!_isDrawing(tool)}}"></paper-icon-button>
+          <div class="dropdown-content settings">
+            <h3>Pen</h3>
+            <paper-item class="settings-item">
+              <paper-item-body two-line>
+                <div>Pixel art brush</div>
+                <div secondary>Snap pen strokes to 3 px square units.</div>
+              </paper-item-body>
+              <paper-toggle-button
+                checked="{{pixelBrush}}"
+                noink></paper-toggle-button>
+            </paper-item>
+          </div>
+        </paper-menu-button>
+      <paper-menu-button
+          id="menuFill"
+          disabled="{{_toolDisabled(sketchDisabled, loading)}}"
+          dynamic-align
+          allow-outside-scroll
+          ignore-select
+          vertical-align="bottom"
+          vertical-offset="48"
+          on-opened-changed="_fill">
+          <paper-icon-button
+              class="dropdown-trigger"
+              title="{{localize('fill')}}"
+              icon="editor:format-color-fill"
+              active="{{_isFilling(tool)}}"
+              toggles="{{!_isFilling(tool)}}"></paper-icon-button>
+          <div class="dropdown-content settings">
+              <h3>Filling</h3>
+              <paper-item class="settings-item">
+                  <paper-item-body two-line>
+                      <div>Screentone</div>
+                      <div secondary>Fills regions with screentone instead of solid black.</div>
+                  </paper-item-body>
+                  <paper-toggle-button
+                      checked="{{fillScreentone}}"
+                      noink></paper-toggle-button>
+              </paper-item>
+
+              <hr>
+              <template is="dom-if" if="[[!fillScreentone]]">
+              <paper-item class="settings-item slider">
+                  <paper-item-body two-line>
+                      <div>Angle</div>
+                      <div secondary>Angle of the fill lines</div>
+                  </paper-item-body>
+                  <paper-slider
+                      value="{{fillAngle}}"
+                      min="-90"
+                      max="90"
+                      step="45"
+                      editable></paper-slider>
+              </paper-item>
+              <paper-item class="settings-item slider">
+                  <paper-item-body two-line>
+                      <div>Spacing</div>
+                      <div secondary>Space between fill lines, in px</div>
+                  </paper-item-body>
+                  <paper-slider
+                      value="{{fillSpacing}}"
+                      min="1"
+                      max="20"
+                      editable></paper-slider>
+              </paper-item>
+              </template>
+              <template is="dom-if" if="[[fillScreentone]]">
+              <h3>Screentoning</h3>
+              <paper-item class="settings-item dropdown">
+                  <paper-item-body two-line>
+                      <div>Pattern</div>
+                      <div secondary>Layout of the screentones</div>
+                  </paper-item-body>
+                    <iron-icon
+                      class="tone-pattern-icon"
+                      icon="[[_tonePatternIcon(tonePattern)]]"></iron-icon>
+                  <paper-dropdown-menu
+                      dynamic-align
+                      no-label-float>
+                      <paper-listbox
+                          class="dropdown-content"
+                          selected="{{tonePattern}}"
+                          attr-for-selected="value">
+                          <paper-icon-item value="normal">
+                              <iron-icon
+                                  item-icon
+                                  icon="handmade:tone-normal"></iron-icon>
+                              <div>Normal</div>
+                          </paper-icon-item>
+                          <paper-icon-item value="diagonal">
+                              <iron-icon
+                                  item-icon
+                                  icon="handmade:tone-diagonal"></iron-icon>
+                              <div>Diagonal</div>
+                          </paper-icon-item>
+                            <paper-icon-item value="square">
+                              <iron-icon
+                                item-icon
+                                icon="handmade:tone-square"></iron-icon>
+                              <div>Square</div>
+                            </paper-icon-item>
+                                <paper-icon-item value="horizontal">
+                                  <iron-icon
+                                    item-icon
+                                    icon="handmade:tone-horizontal"></iron-icon>
+                                  <div>Horizontal</div>
+                                </paper-icon-item>
+                                <paper-icon-item value="vertical">
+                                  <iron-icon
+                                    item-icon
+                                    icon="handmade:tone-vertical"></iron-icon>
+                                  <div>Vertical</div>
+                                </paper-icon-item>
+                      </paper-listbox>
+                  </paper-dropdown-menu>
+              </paper-item>
+              <paper-item class="settings-item slider">
+                  <paper-item-body two-line>
+                      <div>Spacing</div>
+                      <div secondary>Space between tones, in px</div>
+                  </paper-item-body>
+                    <div class="tone-spacing-control">
+                      <paper-slider
+                        value="[[toneSpacingSliderValue]]"
+                        min="2"
+                        max="10"
+                          on-immediate-value-change="_onToneSpacingSliderInput"
+                        on-change="_onToneSpacingSliderChange"></paper-slider>
+                      <paper-input
+                        type="number"
+                        value="{{toneSpacing}}"
+                        min="2"
+                        max="50"
+                          on-change="_onToneSpacingInputChange"
+                        no-label-float></paper-input>
+                    </div>
+              </paper-item>
+              </template>
+              </div>
+          </div>
+      </paper-menu-button>
+      <paper-menu-button
+          id="menuScreentone"
+          disabled="{{_toolDisabled(sketchDisabled, loading)}}"
+          dynamic-align
+          allow-outside-scroll
+          ignore-select
+          vertical-align="bottom"
+          vertical-offset="48"
+          on-opened-changed="_screentone">
+          <paper-icon-button
+              class="dropdown-trigger"
+              title="{{localize('screentone')}}"
+              icon="editor:border-clear"
+              active="{{_isToning(tool)}}"
+              toggles="{{!_isToning(tool)}}"></paper-icon-button>
+          <div class="dropdown-content settings">
+              <h3>Screentoning</h3>
+              <paper-item class="settings-item dropdown">
+                  <paper-item-body two-line>
+                      <div>Pattern</div>
+                      <div secondary>Layout of the screentones</div>
+                  </paper-item-body>
+                    <iron-icon
+                      class="tone-pattern-icon"
+                      icon="[[_tonePatternIcon(tonePattern)]]"></iron-icon>
+                  <paper-dropdown-menu
+                      dynamic-align
+                      no-label-float>
+                      <paper-listbox
+                          class="dropdown-content"
+                          selected="{{tonePattern}}"
+                          attr-for-selected="value">
+                          <paper-icon-item value="normal">
+                              <iron-icon
+                                  item-icon
+                                  icon="handmade:tone-normal"></iron-icon>
+                              <div>Normal</div>
+                          </paper-icon-item>
+                          <paper-icon-item value="diagonal">
+                              <iron-icon
+                                  item-icon
+                                  icon="handmade:tone-diagonal"></iron-icon>
+                              <div>Diagonal</div>
+                          </paper-icon-item>
+                            <paper-icon-item value="square">
+                              <iron-icon
+                                item-icon
+                                icon="handmade:tone-square"></iron-icon>
+                              <div>Square</div>
+                            </paper-icon-item>
+                                <paper-icon-item value="horizontal">
+                                  <iron-icon
+                                    item-icon
+                                    icon="handmade:tone-horizontal"></iron-icon>
+                                  <div>Horizontal</div>
+                                </paper-icon-item>
+                                <paper-icon-item value="vertical">
+                                  <iron-icon
+                                    item-icon
+                                    icon="handmade:tone-vertical"></iron-icon>
+                                  <div>Vertical</div>
+                                </paper-icon-item>
+                      </paper-listbox>
+                  </paper-dropdown-menu>
+              </paper-item>
+                <paper-item class="settings-item slider">
+                      <paper-item-body two-line>
+                          <div>Spacing</div>
+                          <div secondary>(in px)</div>
+                      </paper-item-body>
+                        <div class="tone-spacing-control">
+                          <paper-slider
+                            value="[[toneSpacingSliderValue]]"
+                            min="2"
+                            max="20"
+                              on-immediate-value-change="_onToneSpacingSliderInput"
+                            on-change="_onToneSpacingSliderChange"></paper-slider>
+                          <paper-input
+                            type="number"
+                            value="{{toneSpacing}}"
+                            min="2"
+                            max="50"
+                              on-change="_onToneSpacingInputChange"
+                            no-label-float></paper-input>
+                        </div>
+                      </paper-item>
+                      <paper-item class="settings-item slider">
+                      <paper-item-body two-line>
+                          <div>Radius</div>
+                          <div secondary>(in px)</div>
+                      </paper-item-body>
+                      <paper-slider
+                          value="{{toneRadius}}"
+                          min="1"
+                          max="20"
+                          editable></paper-slider>
+                      </paper-item>
+          </div>
+      </paper-menu-button>
+      <paper-menu-button
+          id="settingsButton"
+          dynamic-align
+          allow-outside-scroll
+          ignore-select
+          vertical-align="bottom"
+          vertical-offset="48">
+          <paper-icon-button
+              class="dropdown-trigger"
+              title="{{localize('settings')}}"
+              icon="settings"></paper-icon-button>
+          <div class="dropdown-content settings">
+              <h3 class="actions-heading">
+                  Actions
+                  <paper-toggle-button
+                      checked="{{compactButtons}}"
+                      aria-label="Use compact actions menu"
+                      title="Use compact actions menu"
+                      noink></paper-toggle-button>
+              </h3>
+              <section class="button-row">
+                <paper-icon-item
+                  class="button-item"
+                  title="Pan canvas"
+                  disabled="[[_toolDisabled(sketchDisabled, loading)]]"
+                  on-tap="_pan">
+                  <iron-icon item-icon icon="mdi:hand-back-right"></iron-icon>
+                  <div>Pan canvas</div>
+                </paper-icon-item>
+              <template is="dom-if" if="[[!playing]]">
+                  <paper-icon-item
+                      disabled="[[!ink]]"
+                      class="button-item"
+                      title="Play sketch animation"
+                      on-tap="_play">
+                          <iron-icon item-icon icon="av:play-arrow"></iron-icon>
+                          <div>Play sketch animation</div>
+                  </paper-icon-item>
+              </template>
+              <template is="dom-if" if="[[playing]]">
+                  <paper-icon-item
+                      class="button-item"
+                      title="Stop sketch animation"
+                      on-tap="_stop">
+                          <iron-icon item-icon icon="av:stop"></iron-icon>
+                          <div>Stop sketch animation</div>
+                  </paper-icon-item>
+              </template>
+              <paper-icon-item
+                  class="button-item"
+                  title="Copy sketch data"
+                  on-tap="_copy">
+                      <iron-icon item-icon icon="content-copy"></iron-icon>
+                      <div>Copy sketch data</div>
+              </paper-icon-item>
+              <paper-icon-item
+                  disabled="[[_clipboardReadTextDisabled]]"
+                  class="button-item"
+                  title="Paste sketch data"
+                  on-tap="_paste">
+                  <iron-icon item-icon icon="content-paste"></iron-icon>
+                  <template is="dom-if" if="[[!_clipboardReadTextDisabled]]">
+                      <div>Paste sketch data</div>
+                  </template>
+                  <template is="dom-if" if="[[_clipboardReadTextDisabled]]">
+                      <paper-item-body two-line>
+                          <div>Paste sketch data</div>
+                          <div secondary>
+                              Pasting on Firefox can only be done with Ctrl+V.
+                          </div>
+                      </paper-item-body>
+                  </template>
+              </paper-icon-item>
+              <paper-icon-item
+                  class="button-item"
+                  title="Toggle fullscreen"
+                  on-tap="_fullscreen">
+                  <iron-icon item-icon icon="fullscreen"></iron-icon>
+                  <div>Toggle fullscreen</div>
+              </paper-icon-item>
+                <paper-icon-item
+                  class="button-item"
+                  title="Set canvas to 800 x 600"
+                  on-tap="_resetCanvasSize">
+                  <iron-icon item-icon icon="aspect-ratio"></iron-icon>
+                  <div>Set canvas to 800 x 600</div>
+                </paper-icon-item>
+                <paper-icon-item
+                  class="button-item settings-action-item"
+                  on-tap="_openSettings">
+                  <iron-icon item-icon icon="settings"></iron-icon>
+                  <div>All settings</div>
+                </paper-icon-item>
+              </section>
+
+              <hr>
+              <h3>General</h3>
+              <paper-item class="settings-item slider">
+                  <paper-item-body two-line>
+                      <div>Sample rate</div>
+                      <div secondary>Input latency (ms)</div>
+                  </paper-item-body>
+                  <paper-slider
+                      value="{{timeResolution}}"
+                      min="0"
+                      max="50"
+                      editable></paper-slider>
+                    </paper-item>
+                    <paper-item class="settings-item dropdown">
+                      <paper-item-body two-line>
+                        <div>Client style</div>
+                        <div secondary>Line drawing behavior</div>
+                      </paper-item-body>
+                      <paper-dropdown-menu
+                        dynamic-align
+                        no-label-float>
+                        <paper-listbox
+                          class="dropdown-content"
+                          selected="{{clientstyle}}"
+                          attr-for-selected="value">
+                          <paper-item value="quackbarc-default">Quackbarc</paper-item>
+                          <paper-item value="noz-alt">Noz</paper-item>
+                          <paper-item value="sketch-rip">Garyc</paper-item>
+                        </paper-listbox>
+                      </paper-dropdown-menu>
+                    </paper-item>
+              <template is="dom-if" if="[[konami]]">
+              <hr>
+              <h3>Hidden settings</h3>
+              <paper-item class="settings-item">
+                  <paper-item-body two-line>
+                      <div>Etch-a-Sketch mode</div>
+                      <div secondary>
+                        Draws with the arrow keys instead of a mouse/pen.
+                      </div>
+                  </paper-item-body>
+                  <paper-toggle-button
+                      checked="{{etchMode}}"
+                      noink></paper-toggle-button>
+              </paper-item>
+              <paper-item class="settings-item slider">
+                  <paper-item-body two-line>
+                      <div>Etch: Line step</div>
+                      <div secondary>Line length per step, in px</div>
+                  </paper-item-body>
+                  <paper-slider
+                      value="{{lineStep}}"
+                      max="20"
+                      min="1"
+                      disabled="{{!etchMode}}"
+                      editable></paper-slider>
+              </paper-item>
+              </template>
+          </div>
+      </paper-menu-button>
+
+      <div class="title">
+          <span>{{localize('ink', 'amount', flooredInk)}}</span>
+          <span id="alert"></span>
+          <div class="stats">
+              <span title="{{localize('tooltipSketches')}}">{{localize('sketches', 'num', sketches)}}</span>
+              <span title="{{localize('tooltipArtists')}}">{{localize('artists', 'num', artists)}}</span>
+              <span title="{{localize('tooltipPeekers')}}">{{localize('peekers', 'num', peekers)}}</span>
+          </div>
+      </div>
+      <div id="mini-stats">
+          <div class="mini-stats-block white" title="{{localize('tooltipInk')}}">
+              {{localize('shortInk', 'amount', flooredInk)}}
+          </div>
+          <div
+              class="mini-stats-block"
+              title="{{localize('tooltipStats', 's', sketches, 'a', artists, 'p', peekers)}}">
+              {{localize('shortSketches', 'num', sketches)}}
+          </div>
+      </div>
+
+      <paper-icon-button
+          title="{{localize('peek')}}"
+          icon="visibility"
+          disabled="{{loading}}"
+          on-tap="_peek"></paper-icon-button>
+      <paper-icon-button
+          title="{{localize('viewGallery')}}"
+          icon="view-module"
+          on-tap="_viewGallery"></paper-icon-button>
+      <paper-menu-button
+          dynamic-align
+          vertical-align="bottom"
+          vertical-offset="48">
+          <paper-icon-button
+              class="dropdown-trigger"
+              title="{{localize('save')}}"
+              icon="save"></paper-icon-button>
+          <div class="dropdown-content menu">
+              <h3>Saving</h3>
+              <paper-icon-item
+                  class="button-item"
+                  on-tap="_save">
+                  <iron-icon item-icon icon="save"></iron-icon>
+                  <div>Save as PNG</div>
+              </paper-icon-item>
+              <paper-icon-item
+                  class="button-item"
+                  on-tap="_saveSVG">
+                  <iron-icon item-icon icon="mdi:content-save-cog"></iron-icon>
+                  <div>Save as SVG</div>
+              </paper-icon-item>
+              <paper-icon-item
+                  disabled="[[!ink]]"
+                  class="button-item"
+                  on-tap="_saveTXT">
+                  <iron-icon item-icon icon="mdi:file-document-outline"></iron-icon>
+                  <div>Save data as TXT</div>
+              </paper-icon-item>
+          </div>
+      </paper-menu-button>
+    </paper-toolbar>
+
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="ctrl+z meta+z"
+        on-keys-pressed="_undo"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="ctrl+y meta+y"
+        on-keys-pressed="_redo"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="ctrl+s meta+s"
+        on-keys-pressed="_save"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="delete"
+        on-keys-pressed="_reset"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="s"
+        on-keys-pressed="_screentone"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="h"
+        on-keys-pressed="_pan"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="e"
+        on-keys-pressed="_erase"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="m"
+        on-keys-pressed="_move"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="b p"
+        on-keys-pressed="_draw"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="f"
+        on-keys-pressed="_fill"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="ctrl+enter meta+enter"
+        on-keys-pressed="_swap"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="ctrl+c meta+c"
+        on-keys-pressed="_copy"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="ctrl+v meta+v"
+        on-keys-pressed="_paste"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="ctrl+alt+c meta+alt+c"
+        on-keys-pressed="_copyImage"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="[ ] { }"
+        on-keys-pressed="_changeSize"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="- _ = +"
+        on-keys-pressed="_changeZoom"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="0"
+        on-keys-pressed="_resetZoom"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="down"
+        on-keys-pressed="_flip"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="tab"
+        on-keys-pressed="_hideUI"></iron-a11y-keys>
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="up down left right"
+        on-keys-pressed="_arrowKeys"></iron-a11y-keys>
+
+    <iron-a11y-keys
+        target="[[captchaTarget]]"
+        keys="enter"
+        on-keys-pressed="_submitCaptcha"></iron-a11y-keys>
+
+    <iron-a11y-keys
+        target="[[target]]"
+        keys="up:keydown down:keydown left:keydown right:keydown up:keyup down:keyup left:keyup right:keyup"
+        on-keys-pressed="_etchEvent"></iron-a11y-keys>
+
+    <sketch-api
+        id="api"
+        source="{{gallery}}"
+        sketches="{{sketches}}"
+        artists="{{artists}}"
+        peekers="{{peekers}}"
+        loading="{{loading}}"
+        use-captcha="{{useCaptcha}}"
+        captcha-u-r-l="{{captchaURL}}"
+        on-get="_onGet"
+        on-swap-complete="_onSwapComplete"
+        on-swap-failed="_onSwapFailed"
+        on-swap-waiting="_onSwapWaiting"></sketch-api>
+  </template>
+
+  <script>
+    Polymer({
+      is: 'sketch-app',
+
+      behaviors: [
+        Polymer.AppLocalizeBehavior,
+        Polymer.IronResizableBehavior,
+        Sketch.TabBehavior
+      ],
+
+      listeners: {
+        'app-resources-loaded': '_hideStats',
+        'alert': '_onAlert',
+      },
+
+      ready: function() {
+        // Overrides
+
+        // override to fix constant string-int casting of .value between
+        // paper-slider instances with the textarea that would eventually
+        // cause stack errors
+        Polymer.IronRangeBehavior._changeValue = function(event) {
+          this.value = parseInt(event.target.value);
+          this.fire('change');
+        };
+        document.querySelectorAll('paper-slider').forEach((e) => {
+          e._changeValue = Polymer.IronRangeBehavior._changeValue;
+        });
+
+        // Property and element updates
+
+        // Firefox... https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API#browser_compatibility
+        const clipboardReadTextDisabled = !(navigator.clipboard && navigator.clipboard.readText);
+        if(clipboardReadTextDisabled) {
+          window.addEventListener('paste', (e) => {this._pasteText(e.clipboardData.getData("text"))});
+        }
+        this._clipboardReadTextDisabled = clipboardReadTextDisabled;
+
+        this._updateChangelogs()
+          .then(() => this._alertNewChangelogs());
+
+        // Event listeners
+
+        // Prevent Chrome from capturing CTRL+S
+        function preventSaving(event) {
+          const ctrlKey = (event.ctrlKey || event.metaKey) && !event.altKey;
+          const key = event.key.toLowerCase();
+          if(ctrlKey && key == "s") {
+            event.preventDefault();
+            return false;
+          }
+
+          return true;
+        }
+
+        function preventKeysOnInputs(event) {
+          if(event.target.tagName == "INPUT") {
+            this.target = null;
+          }
+          else {
+            this.target = document.body;
+          }
+        };
+
+        this._restoreData();
+        window.addEventListener('beforeunload', this._saveData.bind(this));
+        window.addEventListener('pagehide', this._saveData.bind(this));
+        window.addEventListener("resize", this._hideStats.bind(this));
+        setInterval(this._saveData.bind(this), 10000);
+
+        window.addEventListener("keydown", preventSaving.bind(this));
+        window.addEventListener("keydown", this._processExtraKeybinds.bind(this));
+        window.addEventListener(
+          "keydown",
+          this._processPersistentKeybinds.bind(this),
+          {capture: true},
+        );
+        window.addEventListener(
+          "keyup",
+          this._processPersistentKeybinds.bind(this),
+          {capture: true},
+        );
+
+        document.addEventListener("focusin", preventKeysOnInputs.bind(this));
+
+        // https://stackoverflow.com/a/70992717
+        // Prevents iOS Safari from trying to select any text it finds whenever
+        // the canvas/viewport is hold-tapped.
+        this.$.container.addEventListener("touchstart", (e) => e.preventDefault(), true);
+      },
+
+      attached: function() {
+        this.loadResources(this.resolveUrl('locales.json'));
+      },
+
+      // Public properties
+
+      properties: {
+        target: {
+          type: Object,
+          value: document.body
+        },
+        captchaTarget: {
+          type: Object,
+          value: function() {
+            return this.$.captcha;
+          },
+        },
+        undoDisabled: {
+          type: Boolean,
+          value: false
+        },
+        language: {
+          value: 'en'
+        },
+        rememberTab: {
+          type: Boolean,
+          computed: "_rememberTab(sketchDisabled, ink)"
+        },
+        swapDisabled: {
+          type: Boolean,
+          computed: "_swapDisabled(sketchDisabled, loading, ink)"
+        },
+        peekID: {
+          type: Number,
+          value: null,
+        },
+        konami: {
+          type: Boolean,
+          value: false,
+        },
+        captchaPhrase: {
+          type: String,
+          value: "",
+        },
+
+        // computed properties for other components
+
+        pannable: {
+          type: Boolean,
+          computed: "_isPanning(tool)"
+        },
+        panning: {
+          type: Boolean,
+          observer: "_onPanningChanged",
+        },
+        maxDataLength: {
+          type: Number,
+          computed: "_maxDataLength(gallery)"
+        },
+        toneSpacingSliderValue: {
+          type: Number,
+          computed: "_toneSpacingSliderValue(toneSpacing)"
+        },
+        pixelBrush: {
+          type: Boolean,
+          value: false,
+        },
+        eraseScreentoneOnly: {
+          type: Boolean,
+          value: false,
+        },
+        sendCelebration: {
+          type: Boolean,
+          value: false,
+        },
+
+        // settings
+
+        hideSwap: {
+          type: Boolean,
+          value: false
+        },
+        toolbarPosition: {
+          type: String,
+          value: "left",
+          reflectToAttribute: true,
+          observer: "_onUIChange"
+        },
+        compactButtons: {
+          type: Boolean,
+          value: true,
+          reflectToAttribute: true,
+          observer: "_onUIChange"
+        },
+        clientstyle: {
+          type: String,
+          value: "noz-alt"
+        },
+        zoom: {
+          type: Number,
+          observer: "_onZoomChanged",
+        },
+        backgroundType: {
+          type: String,
+          value: "light",
+          observer: "_onBackgroundChange"
+        },
+        autosave: {
+          type: Boolean,
+          value: true
+        },
+        keybindToggling: {
+          type: Boolean,
+          value: true
+        },
+        enableScrollZooming: {
+          type: Boolean,
+          value: true
+        },
+
+        // visual
+
+        flooredInk: {
+          type: Number,
+          readOnly: true,
+          computed: "_flooredInk(ink)"
+        }
+      },
+
+      // Private properties
+
+      _arrowKeyHistory8: [],
+
+      _alertSleepPromise: null,
+
+      _toastSleepPromise: null,
+
+      _sendCelebrationTimeout: null,
+
+      _clipboardReadTextDisabled: false,
+
+      // Computed methods
+
+      _swapDisabled: function(sketchDisabled, loading, ink) {
+        return sketchDisabled || loading || ink <= 0;
+        /* ink might be affected by the negative ink bug but i'm not
+           sure if that's still around after the eraser fix */
+      },
+
+      _toolDisabled: function(sketchDisabled, loading) {
+        return sketchDisabled || loading;
+      },
+
+      _resetDisabled: function(sketchDisabled, loading, enabled, ink) {
+        return loading || ink <= 0 || (sketchDisabled ? false : !enabled);
+      },
+
+      _undoDisabled: function(sketchDisabled, loading, enabled, undoDisabled) {
+        return (sketchDisabled && !undoDisabled) ? false : (loading || !enabled);
+      },
+
+      _editDisabled: function(loading, enabled) {
+        return loading || !enabled;
+      },
+
+      _zoomOutDisabled: function(zoom) {
+        return zoom <= this.$.container.MINIMUM_ZOOM;
+      },
+
+      _zoomInDisabled: function(zoom) {
+        return zoom >= this.$.container.MAXIMUM_ZOOM;
+      },
+
+      _rememberTab: function(sketchDisabled, ink) {
+        return !sketchDisabled && ink > 0;
+      },
+
+      _maxDataLength: function(source) {
+        return source == "noz.rip" ? 128*1024 - 1 : 64*1024 - 1;
+      },
+
+      _toneSpacingSliderValue: function(toneSpacing) {
+        return Math.min(10, Math.max(2, Number(toneSpacing) || 2));
+      },
+
+      _onToneSpacingSliderChange: function(event) {
+        this.set("toneSpacing", event.target.value);
+      },
+
+      _onToneSpacingSliderInput: function(event) {
+        this.set("toneSpacing", event.target.immediateValue);
+      },
+
+      _onToneSpacingInputChange: function(event) {
+        const value = Number(event.target.value);
+        this.set("toneSpacing", Math.min(50, Math.max(2, value || 2)));
+      },
+
+      _flooredInk: function(ink) {
+        return Math.floor(ink*100) / 100;
+      },
+
+      // Private methods
+
+      _saveData: function() {
+        if(this.autosave) {
+          if(this.rememberTab) {
+            var save = {
+              history: this.$.sketch.$.data.history,
+              head: this.$.sketch.$.data.head
+            };
+            var saveKey = 'save' + this.tabID;
+            var saved = this._trySetLocalStorage(saveKey, JSON.stringify(save));
+            if(!saved) {
+              var lines = this.$.sketch.$.data.lines.map(function(line) {
+                return line.slice();
+              });
+              var compactSave = {
+                history: [[{
+                  start: 0,
+                  added: lines,
+                  removed: []
+                }]],
+                head: 1
+              };
+              this._trySetLocalStorage(saveKey, JSON.stringify(compactSave));
+            }
+          }
+          else {
+            try {
+              localStorage.removeItem('save' + this.tabID);
+            }
+            catch(error) {}
+          }
+        }
+
+        var toolSettings = {
+          tool: this.tool,
+          eraserRadius: this.$.sketch.eraserRadius,
+          eraseStrokes: this.$.sketch.eraseStrokes,
+          etchStep: this.$.sketch.lineStep,
+          etchCursor: this.$.sketch.etchCursor,
+          fillAngle: this.$.sketch.fillAngle,
+          fillSpacing: this.$.sketch.fillSpacing,
+          fillScreentone: this.$.sketch.fillScreentone,
+          tonePattern: this.$.sketch.tonePattern,
+          toneRadius: this.$.sketch.toneRadius,
+          toneSpacing: this.$.sketch.toneSpacing,
+          pixelBrush: this.$.sketch.pixelBrush,
+        };
+
+        this._trySetLocalStorage('toolSettings', JSON.stringify(toolSettings));
+
+        var settings = {
+          timeResolution: this.$.sketch.timeResolution,
+          timeResolutionLimited: this.$.sketch.timeResolutionLimited,
+          animationSpeed: this.$.sketch.animationSpeed,
+          clientstyle: this.clientstyle,
+          limitedInk: this.$.sketch.$.data.limitedInk,
+          ignoreTouch: this.$.sketch.ignoreTouch,
+          autosave: this.autosave,
+          keybindToggling: this.keybindToggling,
+          hideSwap: this.hideSwap,
+          toolbarPosition: this.toolbarPosition,
+          compactButtons: this.compactButtons,
+          gallery: this.gallery,
+          backgroundType: this.backgroundType,
+          enableScrollZooming: this.$.container.enableScrollZooming,
+        };
+
+        this._trySetLocalStorage('settings', JSON.stringify(settings));
+      },
+
+      _trySetLocalStorage: function(key, value) {
+        try {
+          localStorage.setItem(key, value);
+          return true;
+        }
+        catch(error) {
+          return false;
+        }
+      },
+
+      _restoreData: function() {
+        // individual settings not in localStorage will fallback to their defaults
+
+        var settings = JSON.parse(localStorage.getItem('settings'));
+        if(settings) {
+          this._resolveOldEnumSetting(settings, "backgroundType", ["light", "dark"]);
+          this._setSetting("timeResolution", settings);
+          this._setSetting("timeResolutionLimited", settings);
+          this._setSetting("animationSpeed", settings);
+          this._setSetting("clientstyle", settings);
+          this._setSetting("limitedInk", settings);
+          this._setSetting("ignoreTouch", settings, this.$.sketch);
+          this._setSetting("autosave", settings);
+          this._setSetting("hideSwap", settings);
+          this._setSetting("toolbarPosition", settings);
+          this._setSetting("compactButtons", settings);
+          this._setSetting("keybindToggling", settings);
+          this._setSetting("gallery", settings);
+          this._setSetting("backgroundType", settings);
+          this._setSetting("enableScrollZooming", settings);
+        }
+
+        var save = JSON.parse(localStorage.getItem('save' + this.tabID));
+        if(this.autosave && save) {
+          this._setSetting("history", save, this.$.sketch.$.data);
+          this._setSetting("head", save, this.$.sketch.$.data);
+          this.$.sketch.refreshLines();
+        }
+
+        var toolSettings = JSON.parse(localStorage.getItem('toolSettings'));
+        if(toolSettings) {
+          this._resolveOldEnumSetting(toolSettings, "tonePattern", ["normal", "diagonal"]);
+
+          this._setSetting("tool", toolSettings, this.$.sketch, "desiredTool");
+          this._setSetting("eraserRadius", toolSettings);
+          this._setSetting("eraseStrokes", toolSettings);
+          this._setSetting("etchStep", toolSettings, this.$.sketch, "lineStep");
+          this._setSetting("etchCursor", toolSettings, this.$.sketch);
+          this._setSetting("fillAngle", toolSettings);
+          this._setSetting("fillSpacing", toolSettings);
+          this._setSetting("fillScreentone", toolSettings);
+          this._setSetting("tonePattern", toolSettings);
+          this._setSetting("toneRadius", toolSettings);
+          this._setSetting("toneSpacing", toolSettings);
+          this._setSetting("pixelBrush", toolSettings);
+        }
+      },
+
+      // Property observers
+
+      _onPanningChanged: function(isPanning) {
+        const keyPanning = this.$.sketch._activeKeyTool == "pan";
+        this.$.sketch.lockTool = isPanning && keyPanning;
+      },
+
+      _onUIChange: function(toggled) {
+        if(!this._readied) {
+          return;
+        }
+
+        // Polymer 1.0 doesn't change custom style properties (the
+        // `--paper-*` CSS declarations) at runtime.
+        // We'll have to call `updateStyles()` whenever we make such changes.
+        this.updateStyles();
+
+        // Notify any elements that could re-position or resize themselves.
+        this.notifyResize();
+
+        // ...and the stats too in the meantime.
+        this._hideStats();
+      },
+
+      _onBackgroundChange: function(type) {
+        const background = "background-" + type;
+        const classlist = document.documentElement.classList;
+
+        for(const cl of classlist) {
+          if(cl == background) {
+            continue;
+          }
+          if(cl.startsWith("background-")) {
+            classlist.remove(cl);
+          }
+        }
+        classlist.add(background);
+      },
+
+      // Element observers
+
+      _onCaptchaDialogOpened: function() {
+        // Ignore keybinds while the captcha dialog is open.
+        this.target = null;
+        this.$.api.refreshCaptcha();
+      },
+
+      _onCaptchaDialogClosed: function() {
+        this.target = document.body;
+        this.$.captchaImage.classList.remove("inverted");
+      },
+
+      // Event handlers for element updates
+
+      _updatePercentZoom: function(event) {
+        // Unlike regular properties, which can be updated with two-way data
+        // bindings (i.e. the {{}} syntax), this one's a bit special.
+        // We want zoom-container's `percentZoom` to mirror `zoom`,
+        // but AFAIK, the framework only supports mirroring the value of
+        // the latter onto the former -- not the other way around.
+        // So we're writing our own helper methods for that.
+        const value = event.target.valueAsNumber;
+        this.$.container.percentZoom = value;
+      },
+
+      // Event handlers for API and ajax
+
+      _onSwapWaiting: function() {
+        this._alert('waiting for other sketch...');
+      },
+
+      _onSwapFailed: function(e) {
+        this.sketchDisabled = false;
+
+        const {swap, captchaFailed, message} = e.detail;
+        if(swap) {
+          this.peekID = null;
+        }
+        if(captchaFailed) {
+          this.$.captchaDialog.open();
+          return this._alert("incorrect captcha!");
+        }
+        else {
+          const peektype = swap ? 'swap' : 'fetch'
+          const alertMsg = message || `failed to ${peektype}`;
+          return this._alert(alertMsg);
+        }
+      },
+
+      _onGet: function(data) {
+        if(this.$.sketch.flipped) {
+          this.$.sketch.flip();
+        }
+
+        this.peekID = data.detail.id;
+        this.$.sketch.data = data.detail.data;
+
+        // Start playing the animation once the flip gets rendered.
+        window.requestAnimationFrame(() => this.$.sketch.play());
+      },
+
+      _onSwapComplete: function(data) {
+        this._showSendCelebration();
+        this.peekID = data.detail.id;
+        this.$.sketch.stop();
+        this.$.sketch.data = "";
+        this.$.container.fit = true;
+        this.sketchDisabled = false;
+        this.undoDisabled = false;
+      },
+
+      _showSendCelebration: function() {
+        clearTimeout(this._sendCelebrationTimeout);
+        this.sendCelebration = false;
+        this.async(() => {
+          this.sendCelebration = true;
+          this._sendCelebrationTimeout = setTimeout(() => {
+            this.sendCelebration = false;
+          }, 1100);
+        });
+      },
+
+      _onSendCelebrationAnimationEnd: function(event) {
+        if(event.animationName.indexOf("send-celebration-image") == 0) {
+          clearTimeout(this._sendCelebrationTimeout);
+          this.sendCelebration = false;
+        }
+      },
+
+      _onAlert: function(message) {
+        this._alert(message.detail);
+      },
+
+      // Event handlers for buttons
+
+      _play: function(e) {
+        this.$.sketch.play();
+        this.$.settingsButton.close();
+      },
+
+      _stop: function(e) {
+        this.$.sketch.stop(true);
+        this.$.settingsButton.close();
+      },
+
+      _swap: function() {
+        if(!this.swapDisabled && !this.drawing) {
+          if(this.useCaptcha) {
+            return this.$.captchaDialog.open();
+          }
+
+          this.__swap();
+        }
+      },
+
+      __swap: function() {
+        this.peekID = null;
+
+        if(this.sketchFlipped) {
+          this.$.sketch.$.data.flip();
+        }
+
+        if(this.useCaptcha) {
+          this.$.api.swapWithCaptcha(
+            this.$.sketch.$.data.swapData,
+            this.captchaPhrase,
+          );
+        }
+        else {
+          this.$.api.swap(this.$.sketch.$.data.swapData);
+        }
+
+        if(this.sketchFlipped) {
+          // Unflip the data now that we've sent it flipped.
+          this.$.sketch.$.data.flip();
+        }
+
+        this.captchaPhrase = "";
+        this.$.container.fit = true;
+        this.sketchDisabled = true;
+        this.undoDisabled = true;
+      },
+
+      _submitCaptcha: function() {
+        this.$.captchaDialog.close();
+        this.__swap();
+      },
+
+      _undo: function() {
+        if(this.sketchDisabled) {
+          this.$.sketch.stop();
+          this.sketchDisabled = false;
+          this.peekID = null;
+          this.$.sketch.undo();
+          this.$.sketch.$.data.history = this.$.sketch.$.data.history.slice(0, -1);
+        }
+        else {
+          if(!this.drawing) {
+            this.$.sketch.undo();
+          }
+        }
+      },
+
+      _redo: function() {
+        if(!this.drawing) {
+          this.$.sketch.redo();
+        }
+      },
+
+      _pan: function(e) {
+        if(e.type == 'keys-pressed' && this.keybindToggling
+            && this.$.sketch.desiredTool == 'pan') {
+          this.$.sketch.desiredTool = 'pen';
+        }
+        else {
+          this.$.sketch.desiredTool = 'pan';
+        }
+      },
+
+      _erase: function(e) {
+        this._menuAction(e, this.$.menuEraser, 'eraser');
+      },
+
+      _draw: function(e) {
+        if(e && e.type == 'opened-changed') {
+          this._menuAction(e, this.$.menuPen, 'pen');
+          return;
+        }
+        this.$.sketch.desiredTool = 'pen';
+      },
+
+      _move: function() {
+        this.$.sketch.desiredTool = 'move';
+      },
+
+      _screentone: function(e) {
+        this._menuAction(e, this.$.menuScreentone, 'screentone');
+      },
+
+      _fill: function(e) {
+        this._menuAction(e, this.$.menuFill, 'fill');
+      },
+
+      _reset: function() {
+        if(this.drawing) {
+          return;
+        }
+
+        this.$.sketch.stop();
+
+        if(this.sketchDisabled && !this.undoDisabled) {
+          this.sketchDisabled = false;
+          this.$.sketch.undo();
+          this.$.sketch.$.data.history = this.$.sketch.$.data.history.slice(0, -1);
+        }
+
+        this.$.sketch.data = "";
+        if(this.sketchDisabled && this.undoDisabled) {
+          this.$.sketch.$.data.clearHistory();
+        }
+        this.sketchDisabled = false;
+        this.undoDisabled = false;
+        this.peekID = null;
+      },
+
+      _flip: function(event) {
+        const pressingDown = event.type == "keys-pressed" && event.detail.key == "down";
+        if(pressingDown && (this.$.sketch.etchMode || this._isMoving(this.tool))) {
+          return;
+        }
+        if(this.sketchDisabled) {
+          return;
+        }
+
+        if(this.$.settingsButton.opened) {
+          this.$.settingsButton.close();
+        }
+
+        this.$.sketch.flip();
+      },
+
+      _peek: function() {
+        if(this.drawing) {
+          return;
+        }
+
+        this.$.api.peek();
+        this.$.container.fit = true;
+        this.sketchDisabled = true;
+        this.undoDisabled = false;
+        this.peekID = null;
+      },
+
+      _viewGallery: function() {
+        let baseURL;
+        switch(this.gallery) {
+          case "noz.rip":
+            baseURL = `https://noz.rip/sketch/gallery`;
+            break;
+          case "garyc.me":
+          default:
+            baseURL = `https://garyc.me/sketch/gallery.php`;
+            break;
+        }
+
+        window.open(baseURL);
+      },
+
+      _save: function() {
+        this.$.api.save(this.$.sketch.canvasURL);
+      },
+
+      _saveSVG: function() {
+        this.$.api.saveSVG(this.$.sketch.$.data.lines);
+      },
+
+      _saveTXT: function() {
+        const data = this.$.sketch.$.data.data;
+        if(!data) {
+          return this._alert("can't save an empty sketch");
+        }
+
+        this.$.api.saveTXT(data);
+      },
+
+      _copyImage: function() {
+        if(!navigator.clipboard || !window.ClipboardItem) {
+          return this._alert('unable to copy image onto clipboard');
+        }
+
+        this.$.sketch.copyCanvas();
+        this._alert('copied image to clipboard');
+      },
+
+      _copy: function() {
+        if(!this.sketchDisabled) {
+          if(!navigator.clipboard) {
+            return this._alert('unable to copy to clipboard');
+          }
+
+          var data = this.$.sketch.data;
+          navigator.clipboard.writeText(data);
+          if(data) {
+            this._alert('copied to clipboard');
+          } else {
+            this._alert('copied to clipboard (but at what cost)');
+          }
+        }
+      },
+
+      _paste: function(e) {
+        if(!navigator.clipboard) {
+          return this._alert('unable to read clipboard');
+        }
+
+        if(!navigator.clipboard.readText) {
+          if(e.type === "keys-pressed") {
+            return; // handled by fallback
+          } else {
+            return this._alert('unable to read clipboard');
+          }
+        }
+
+        navigator.clipboard.readText()
+          .then(text => this._pasteText(text))
+          .catch(error => {
+            if(error instanceof DOMException) {
+              this._alert('no permission to read clipboard');
+            } else {
+              throw error;
+            }
+          });
+      },
+
+      _pasteText: function(text) {
+        if(this.drawing) {
+          return;
+        }
+
+        // Shrink spaces of any length or kind into single-spaces.
+        // This should prevent entirely blank lines and terrible NaNs from
+        // non-0x20 spaces.
+        text = text.replace(/\s+/g, ' ');
+        // Trim JavaScript string affixes
+        text = text.replace(/^[ '"]+|[ '"]+$/g, '');
+
+        const pattern = /^[\s0-9a-zA-Z]*$/;
+        var isValidData = pattern.test(text);
+        if(!isValidData) {
+          return this._alert('invalid clipboard input');
+        };
+
+        this.$.sketch.stop();
+        this.$.sketch.data = text;
+        this.peekID = null;
+        this.sketchDisabled = false;
+        this._alert('pasted from clipboard');
+      },
+
+      _fit: function() {
+        this.$.container.fit = true;
+      },
+
+      _fullscreen: function() {
+        if(document.fullscreenElement) {
+          return document.exitFullscreen();
+        }
+        document.documentElement.requestFullscreen();
+      },
+
+      _zoomOut: function() {
+        this.$.container.zoomStep(-1);
+      },
+
+      _zoomIn: function() {
+        this.$.container.zoomStep(1);
+      },
+
+      _changeSize: function(e) {
+        e.preventDefault();
+        var v = (e.detail.key == '[' || e.detail.key == '{') ? -1 : 1;
+        var tool = this.$.sketch.tool;
+        var newValue, changedValue, name;
+
+        const keyEvent = e.detail.keyboardEvent;
+        const query = `${tool}, ${keyEvent.shiftKey}`;
+        switch(query) {
+          case 'eraser, false':
+            name = "eraser size";
+            newValue = this.$.sketch.eraserRadius += v;
+            changedValue = this.$.sketch.eraserRadius;
+            break;
+          case 'pen, true':
+            name = "sample rate";
+            newValue = this.$.sketch.timeResolution += v;
+            changedValue = this.$.sketch.timeResolution;
+            break;
+          case 'fill, true':
+            if(this.fillScreentone) {
+              name = "fill screentone spacing";
+              newValue = this.$.sketch.toneSpacing += v;
+              changedValue = this.$.sketch.toneSpacing;
+              break;
+            }
+            else {
+              name = "fill spacing";
+              newValue = this.$.sketch.fillSpacing += v;
+              changedValue = this.$.sketch.fillSpacing;
+              break;
+            }
+          case 'screentone, false':
+            name = "screentone size";
+            newValue = this.$.sketch.toneRadius += v;
+            changedValue = this.$.sketch.toneRadius;
+            break;
+          case 'screentone, true':
+            name = "screentone spacing";
+            newValue = this.$.sketch.toneSpacing += v;
+            changedValue = this.$.sketch.toneSpacing;
+            break;
+        }
+        // the sliders take care of the value limits, so we're taking advantage of
+        // that instead of hard-coding the limits again
+        newValue = changedValue != newValue ? changedValue : newValue;
+
+        if(newValue != null) {
+          this._alert(`${name}: ${newValue}`);
+        }
+      },
+
+      _changeZoom: function(event) {
+        let zoomFactor = 1;
+        let direction = 0;
+
+        switch(event.detail.key) {
+          case '-':
+          case '_':
+            zoomFactor = 7/10;
+            direction = -1;
+            break;
+          case '+':
+          case '=':
+            zoomFactor = 10/7;
+            direction = 1;
+            break;
+        }
+
+        if(this.steppedZoom) {
+          this.$.container.zoomStep(direction);
+        }
+        else {
+          this.$.container.zoom *= zoomFactor;
+        }
+      },
+
+      _resetZoom: function() {
+        this.$.container.fit = true;
+      },
+
+      _resetCanvasSize: function() {
+        const container = this.$.container;
+        if (!container.fit && container.zoom === 1 &&
+            container.position[0] === 0 && container.position[1] === 0) {
+          container.fit = true;
+          return;
+        }
+        container.fit = false;
+        container.position = [0, 0];
+        container.zoom = 1;
+        container._restrictPosition(1);
+        container.__updateViewport();
+        container.notifyResize();
+      },
+
+      _isPanning: function(tool) {
+        return tool === 'pan';
+      },
+
+      _isErasing: function(tool) {
+        return tool === 'eraser';
+      },
+
+      _isDrawing: function(tool) {
+        return tool === 'pen';
+      },
+
+      _isMoving: function(tool) {
+        return tool === 'move';
+      },
+
+      _isToning: function(tool) {
+        return tool === 'screentone';
+      },
+
+      _tonePatternIcon: function(pattern) {
+        return `handmade:tone-${pattern}`;
+      },
+
+      _isFilling: function(tool) {
+        return tool === 'fill';
+      },
+
+      // Event handlers for keyboard and other inputs
+
+      /**
+       * Handlers for keybinds unsupported by <iron-a11y-keys>, like
+       * modifier+symbol keybinds (e.g. `Ctrl+Enter` or `Ctrl+/`),
+       * or no modifier keybinds (e.g. `Enter`, but without implicitly
+       * catching `Ctrl+Enter` or `Alt+Enter`).
+       *
+       * These are hooked on the app via a regular
+       * `.addEventListener`.
+       *
+       * @param {KeyboardEvent} event
+       **/
+      _processExtraKeybinds: function(event) {
+        if(!this.target) {
+          return;
+        }
+
+        if((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && (event.key == "/")) {
+          this._toggleKeybindMenu();
+          return false;
+        }
+
+        return true;
+      },
+
+      /**
+       * Handlers for keybinds that toggle on key presses/releases.
+       * These are hooked on the app via a regular
+       * `.addEventListener`.
+       *
+       * @param {KeyboardEvent} event
+       **/
+      _processPersistentKeybinds: function(event) {
+        if(!this.target) {
+          return;
+        }
+
+        const activating = event.type == "keydown";
+
+        if(event.key == " ") {
+          this.$.sketch._activeKeyTool = activating ? "pan" : "";
+          event.preventDefault();
+        }
+
+        if(this.tool == "eraser") {
+          this.$.sketch.activeStrokeErasing = event.shiftKey;
+        }
+        if(this.tool == "pan") {
+          this.$.container.dragZooming = event.ctrlKey;
+        }
+      },
+
+      _arrowKeys: function() {
+        if(!this.sketchDisabled && this._isMoving(this.tool)) {
+          let [dx, dy] = [0, 0];
+          switch(event.detail.key) {
+            case "up": dy -= 1; break;
+            case "down": dy += 1; break;
+            case "left": dx -= 1; break;
+            case "right": dx += 1; break;
+          }
+
+          if(this.sketchFlipped) {
+            dx *= -1;
+          }
+
+          const arrowHistory = this._arrowKeyHistory8;
+          arrowHistory.push(event.detail.key);
+
+          if(arrowHistory.length > 8) {
+            arrowHistory.shift();
+          }
+          if(arrowHistory.join(",") == "up,up,down,down,left,right,left,right" && !this.konami) {
+            this.konami = true;
+            this._alert("you hear the sound of cogs moving.", 5000);
+          }
+
+          this.$.sketch._miniMove(dx, dy);
+        }
+      },
+
+      _etchEvent: function(event) {
+        if(this.etchMode && !this.sketchDisabled && !this._isMoving(this.tool)) {
+          this.$.sketch.etchEvent(event.detail.keyboardEvent);
+        };
+      },
+
+      // UI-related methods
+
+      _alert: async function(message, ms=3000) {
+        const sidebar = this.toolbarPosition == "left" || this.toolbarPosition == "right";
+        if(sidebar) {
+          return await this._alertWithToast(message, ms);
+        }
+        else {
+          return await this._alertWithToolbar(message, ms);
+        }
+      },
+
+      _alertWithToolbar: async function(message, ms=3000) {
+        var title = document.querySelector('.title');
+        var span = document.querySelector('.title span');
+        var alertSpan = document.querySelector('#alert');
+
+        alertSpan.innerHTML = message;
+        span.hidden = true;
+        if(title.clientWidth < alertSpan.scrollWidth) {
+          this.$.toolbar.classList.add("alertOnly");
+        }
+        this._hideStats();
+
+        let sleepPromise = this._alertSleepPromise = this._sleep(ms);
+        await sleepPromise;
+
+        if(this._alertSleepPromise === sleepPromise) {
+          alertSpan.innerHTML = '';
+          span.hidden = false;
+          this.$.toolbar.classList.remove("alertOnly");
+          this._hideStats();
+        }
+      },
+
+      _alertWithToast: async function(message, ms=3000) {
+        this.$.alertToastMessage.innerText = message;
+        this.$.alertToast.hidden = false;
+
+        let sleepPromise = this._toastSleepPromise = this._sleep(ms);
+        await sleepPromise;
+
+        if(this._toastSleepPromise === sleepPromise) {
+          this.$.alertToast.hidden = true;
+        }
+      },
+
+      _toggleKeybindMenu: function() {
+        this.$.keybindDialog.toggle();
+      },
+
+      _openKeybindMenu: function() {
+        this.$.keybindDialog.open();
+      },
+
+      _openChangelogs: function() {
+        this.$.changelogs.open();
+      },
+
+      _openSettings: function() {
+        this.$.settings.open();
+      },
+
+      _onZoomChanged: function() {
+        clearTimeout(this._canvasMeasurementsFrame);
+        this._canvasMeasurementsFrame = setTimeout(() => {
+          this._updateCanvasMeasurements();
+        }, 0);
+        clearTimeout(this._canvasMeasurementsTimeout);
+        this.$.canvasMeasurements.style.opacity = "1";
+        this.$.canvasMeasurements.classList.add("visible");
+        this._canvasMeasurementsTimeout = setTimeout(() => {
+          this.$.canvasMeasurements.style.opacity = "0";
+          this.$.canvasMeasurements.classList.remove("visible");
+        }, 700);
+      },
+
+      _updateCanvasMeasurements: function() {
+        if (!this.$.canvasMeasurements || !this.$.sketch) {
+          return;
+        }
+
+        const canvas = this.$.sketch.$.sketchCanvas;
+        const contentRect = this.$.canvasMeasurements.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        const horizontal = this.$.canvasMeasurements.querySelector(".horizontal");
+        const vertical = this.$.canvasMeasurements.querySelector(".vertical");
+
+        horizontal.textContent = `${Math.round(canvasRect.width)} px`;
+        vertical.textContent = `${Math.round(canvasRect.height)} px`;
+
+        const canvasLeft = canvasRect.left - contentRect.left;
+        const canvasTop = canvasRect.top - contentRect.top;
+        const canvasRight = canvasLeft + canvasRect.width;
+        const canvasBottom = canvasTop + canvasRect.height;
+        const padding = 8;
+        const viewportWidth = contentRect.width;
+        const viewportHeight = contentRect.height;
+
+        this.$.canvasMeasurements.style.left = "0px";
+        this.$.canvasMeasurements.style.top = "0px";
+        horizontal.style.left = `${Math.min(
+          Math.max(
+            canvasRect.width > viewportWidth
+              ? viewportWidth / 2
+              : canvasLeft + canvasRect.width / 2,
+            horizontal.offsetWidth / 2 + padding,
+          ),
+          Math.max(padding, viewportWidth - horizontal.offsetWidth - padding),
+        )}px`;
+        horizontal.style.top = `${Math.min(
+          Math.max(
+            canvasRect.height > viewportHeight
+              ? horizontal.offsetHeight / 2
+              : canvasTop - horizontal.offsetHeight / 2,
+            horizontal.offsetHeight / 2,
+          ),
+          Math.max(horizontal.offsetHeight / 2, viewportHeight - horizontal.offsetHeight / 2),
+        )}px`;
+
+        vertical.style.left = `${Math.min(
+          Math.max(
+            canvasRect.width > viewportWidth
+              ? viewportWidth - vertical.offsetHeight / 2 - padding
+              : canvasRight + padding,
+            vertical.offsetHeight + padding,
+          ),
+          Math.max(vertical.offsetHeight + padding, viewportWidth - padding),
+        )}px`;
+        vertical.style.top = `${Math.min(
+          Math.max(
+            canvasRect.height > viewportHeight
+              ? viewportHeight / 2 - vertical.offsetWidth / 2
+              : canvasTop + canvasRect.height / 2 - vertical.offsetWidth / 2,
+            padding,
+          ),
+          Math.max(padding, viewportHeight - vertical.offsetWidth - padding),
+        )}px`;
+      },
+
+      _closeMenus: function() {
+        document.querySelectorAll('iron-dropdown').forEach((x) => x.close());
+      },
+
+      _hideUI: function(event) {
+        event.detail.keyboardEvent.preventDefault();
+        this.$.toolbar.hidden = !this.$.toolbar.hidden;
+
+        // guess i gotta call this manually
+        this.$.container._onIronResize();
+      },
+
+      _menuAction: function(event, elem, tool) {
+        if(event.type == 'keys-pressed') {
+          if(this.keybindToggling && this.$.sketch.desiredTool == tool) {
+            elem.toggle();
+          }
+        }
+        else {
+          // sometimes an opened-changed event fires on init
+          // so we wanna return to prevent unwanted tool changes
+          var opened = event.detail.value
+          if(!opened) {
+            return;
+          }
+
+          if(this.$.sketch.desiredTool != tool) {
+            elem.close();
+          }
+        }
+
+        this.$.sketch.desiredTool = tool;
+      },
+
+      _hideStats: function() {
+        var title = document.querySelector('.title');
+        var stats = title.querySelector('.stats');
+        var span = title.querySelector('span'); // first span
+        var alertSpan = title.querySelector('span#alert');
+
+        var maxWidth = span.offsetWidth + alertSpan.offsetWidth + stats.offsetWidth + 26 // margins + 2
+
+        stats.style.visibility = title.offsetWidth <= maxWidth ? 'hidden' : ''
+      },
+
+      _invertCaptcha: function() {
+        this.$.captchaImage.classList.toggle("inverted");
+      },
+
+      _updateChangelogs: async function() {
+        const markdownLines = [];
+
+        const headers = {
+          "X-GitHub-Api-Version": "2026-03-10",
+        };
+        const releasesURL = "https://api.github.com/repos/quackbarc/sketch/releases";
+        const releases = await fetch(releasesURL, {headers}).then(resp => resp.json());
+
+        const latestRelease = releases[0];
+        if(!latestRelease) {
+          return;
+        }
+
+        for(const release of releases) {
+          const timestamp = new Date(release.published_at);
+          const timestampStr = timestamp.toLocaleString(
+            "default", {
+                weekday: "short",
+                month: "long",
+                day: "2-digit",
+                year: "numeric",
+                hour: "2-digit",
+                minute: "2-digit",
+            }
+          );
+
+          const commitPattern = /\b([0-9a-f]{30,})\b/g;
+          let body = release.body;
+          body = body.replace(commitPattern, "");
+
+          markdownLines.push(
+            `<h1 class="version-name">${release.name}</h1>`,
+            `<em class="version-timestamp">${timestampStr}</em>`,
+            body,
+            '<hr class="version-separator"/>',
+          );
+        };
+
+        // Replace final .version-separator <hr> with a regular <hr>
+        markdownLines.splice(-1, 1, "---");
+
+        this.$.changelogsContent.markdown = markdownLines.join("\n\n");
+      },
+
+      _alertNewChangelogs: async function() {
+        // It should be fine to repeatedly fetch releases;
+        // requests get cached for a minute.
+        const headers = {
+          "X-GitHub-Api-Version": "2026-03-10",
+        };
+        const releasesURL = "https://api.github.com/repos/quackbarc/sketch/releases";
+        const releases = await fetch(releasesURL, {headers}).then(resp => resp.json());
+        const latestRelease = releases[0];
+        if(!latestRelease) {
+          return;
+        }
+
+        const hasSettings = !!localStorage.getItem("settings");
+        const latestVersion = latestRelease.name;
+        const lastVersion = localStorage.getItem("lastRelease");
+        if(lastVersion ? lastVersion != latestVersion : hasSettings) {
+          this._alert("new update! check changelogs in settings", 5000);
+        }
+        localStorage.setItem("lastRelease", latestVersion);
+      },
+
+      // Utility methods
+
+      _sleep: function(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+      },
+
+      _setSetting: function(name, settings, target = this, targetName = null) {
+        if(settings[name] != null) {
+          target[targetName || name] = settings[name];
+        }
+      },
+
+      /**
+       * Resolves settings that used to be number-based (or enum-based)
+       * into their current string-based forms.
+       *
+       * This is mainly just for legacy support, specifically for dropdown
+       * settings that used to have it.
+       *
+       * @param {Object} settings
+       * @param {string} name
+       * @param {string[]} options
+       *    The current string options, indexed by their number-based ones.
+       **/
+      _resolveOldEnumSetting: function(settings, name, options) {
+        for(const indraw in options) {
+          const option = options[indraw];
+          const ind = parseInt(indraw);
+          if(settings[name] == ind) {
+            settings[name] = option;
+          }
+        }
+      }
+    });
+  </script>
+</dom-module>

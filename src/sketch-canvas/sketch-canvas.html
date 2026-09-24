@@ -1,0 +1,1158 @@
+<link rel="import" href="../../bower_components/polymer/polymer.html" />
+<link
+	rel="import"
+	href="../../bower_components/iron-resizable-behavior/iron-resizable-behavior.html"
+/>
+<link rel="import" href="../../bower_components/paper-styles/shadow.html" />
+<link rel="import" href="../sketch-data/sketch-data.html" />
+<link rel="import" href="../sketch-etch/sketch-etch.html" />
+
+<dom-module id="sketch-canvas">
+	<template>
+		<style>
+			:host {
+				--cursor: crosshair;
+
+				@apply (--shadow-elevation-4dp);
+				display: block;
+				cursor: var(--cursor);
+				touch-action: none;
+
+				-webkit-user-select: none;
+				user-select: none;
+			}
+
+			#sketchCanvas {
+				display: block;
+
+				background: white;
+				touch-action: none;
+			}
+		</style>
+		<canvas
+			id="sketchCanvas"
+			on-pointermove="_onPointerMove"
+			on-pointerenter="_onPointerMove"
+			on-pointerleave="_onPointerMove"
+			on-pointerover="_onPointerMove"
+			on-pointerout="_onPointerMove"
+			on-pointerdown="_onPointerMove"
+			on-pointerup="_onPointerMove"
+			on-pointercancel="_onPointerMove"
+			on-contextmenu="_onContextMenu"
+			width="800"
+			height="600"
+		></canvas>
+		<sketch-data
+			id="data"
+			length="{{dataLength}}"
+			max-length="{{maxDataLength}}"
+			can-undo="{{dataCanUndo}}"
+			can-redo="{{dataCanRedo}}"
+			limited-ink="{{limitedInk}}"
+			pixel-brush="{{pixelBrush}}"
+		></sketch-data>
+	</template>
+	<script>
+		;(function () {
+			Polymer({
+				is: "sketch-canvas",
+
+				ready: function () {
+					// Set up backup canvas to quickly rebuild already-drawn lines while drawing
+					if (window.OffscreenCanvas) {
+						const { width, height } = this.$.sketchCanvas
+						const canvas2 = new OffscreenCanvas(width, height)
+						this._canvas2 = canvas2.getContext("2d", {
+							alpha: false,
+						})
+					} else {
+						const canvas2 = document.createElement("canvas")
+						canvas2.width = this.$.sketchCanvas.width
+						canvas2.height = this.$.sketchCanvas.height
+						this._canvas2 = canvas2.getContext("2d", {
+							alpha: false,
+						})
+					}
+
+					this._canvas = this.$.sketchCanvas.getContext("2d", {
+						alpha: false,
+						// This should force hardware-accelerated rendering whenever available;
+						// If this was left unspecified, Chromium would've eventually switched
+						// to software rendering if enough `.getImageData()` calls were made.
+						// And its software rendering looks terrible, especially for fills.
+						willReadFrequently: false,
+					})
+					// Restore rendering on GPU or other driver crashes
+					this._canvas.canvas.addEventListener(
+						"contextrestored",
+						this._updateRendering.bind(this),
+					)
+
+					// Polymer seems to only start registering private properties for
+					// computed ones only when they're assigned during ready().
+					this._activeTool = null
+					this._activeKeyTool = null
+
+					this._bounds = this.getBoundingClientRect()
+
+					this._updateRendering()
+					this._clear()
+					this._sketchRipInterval = window.setInterval(() => {
+						if (this.clientStyle != "sketch-rip") {
+							return
+						}
+						const move = this._sketchRipPointerMove
+						this._sketchRipPointerMove = null
+						if (move) {
+							this._processEvent(move)
+						}
+					}, 1000 / 30)
+				},
+
+				behaviors: [Polymer.IronResizableBehavior, Sketch.EtchBehavior],
+
+				listeners: {
+					"iron-resize": "_onIronResize",
+				},
+
+				// Public properties
+
+				properties: {
+					ink: {
+						type: Number,
+						notify: true,
+						readOnly: true,
+						computed: "computeInk(maxDataLength, dataLength)",
+					},
+					drawing: {
+						type: Boolean,
+						notify: true,
+						readOnly: true,
+						value: false,
+					},
+					playing: {
+						type: Boolean,
+						notify: true,
+						readOnly: true,
+						value: false,
+					},
+					flipped: {
+						type: Boolean,
+						notify: true,
+						value: false,
+						observer: "_onFlippedChanged",
+					},
+					desiredTool: {
+						type: String,
+						value: "pen",
+					},
+					tool: {
+						type: String,
+						notify: true,
+						readOnly: true,
+						computed:
+							"_tool(desiredTool, _activeTool, _activeKeyTool)",
+						observer: "_onToolChanged",
+					},
+					lockTool: {
+						type: Boolean,
+						value: false,
+						observer: "_onToolLocked",
+					},
+					disabled: {
+						type: Boolean,
+						notify: true,
+						value: false,
+					},
+					canUndo: {
+						type: Boolean,
+						notify: true,
+						computed: "_canEdit(dataCanUndo, disabled)",
+					},
+					canRedo: {
+						type: Boolean,
+						notify: true,
+						computed: "_canEdit(dataCanRedo, disabled)",
+					},
+					cursor: {
+						type: String,
+						computed:
+							"_cursor(disabled, tool, eraseStrokes, eraserRadius, toneRadius, _bounds)",
+						observer: "_onCursorChanged",
+					},
+
+					// settings
+
+					timeResolution: {
+						type: Number,
+						notify: true,
+						value: 20,
+					},
+					ignoreTouch: {
+						type: Boolean,
+						notify: true,
+						value: false,
+					},
+					animationSpeed: {
+						// computed later as 10 ** (x/10 + 1)
+						// might have to think of a better system for this sometime
+						type: Number,
+						notify: true,
+						value: 10,
+					},
+					clientStyle: {
+						type: String,
+						value: "quackbarc-default",
+						observer: "_onClientStyleChanged",
+					},
+					renderType: {
+						// options: "round", "gallery", "gallery-miter"
+						type: String,
+						notify: true,
+						value: "gallery",
+						observer: "_updateRendering",
+					},
+
+					// tool settings
+
+					fillAngle: {
+						type: Number,
+						notify: true,
+						value: 0,
+					},
+					fillSpacing: {
+						type: Number,
+						notify: true,
+						value: 1,
+					},
+					fillScreentone: {
+						type: Boolean,
+						notify: true,
+						value: false,
+					},
+					tonePattern: {
+						// options: "normal", "diagonal"
+						type: String,
+						notify: true,
+						value: "normal",
+					},
+					toneSpacing: {
+						type: Number,
+						notify: true,
+						value: 6,
+					},
+					pixelBrush: {
+						type: Boolean,
+						notify: true,
+						value: false,
+					},
+					toneRadius: {
+						type: Number,
+						notify: true,
+						value: 8,
+					},
+					eraserRadius: {
+						type: Number,
+						notify: true,
+						value: 3,
+					},
+					eraseStrokes: {
+						type: Boolean,
+						computed:
+							"_eraseStrokes(eraseStrokesSetting, activeStrokeErasing)",
+					},
+					eraseStrokesSetting: {
+						type: Boolean,
+						notify: true,
+						value: false,
+					},
+					eraseScreentoneOnly: {
+						type: Boolean,
+						notify: true,
+						value: false,
+					},
+					activeStrokeErasing: {
+						type: Boolean,
+						value: false,
+					},
+
+					// bubblers
+
+					limitedInk: {
+						type: Boolean,
+						notify: true,
+					},
+					maxDataLength: {
+						type: Number,
+						notify: true,
+					},
+				},
+
+				get data() {
+					return this.$.data.data
+				},
+
+				set data(data) {
+					this.$.data.data = data
+					this._render()
+				},
+
+				get canvasURL() {
+					return this.$.sketchCanvas.toDataURL("image/png")
+				},
+
+				// Private properties
+
+				_activeKeyTool: null,
+
+				_canvas: null,
+
+				_canvas2: null,
+
+				_rendering: false,
+
+				_keepRendering: false,
+
+				_playProgressLines: 0,
+
+				_playProgressPoints: 0,
+
+				_lastTimestamp: null,
+
+				_bounds: null,
+
+				_wasPressed: null,
+
+				_wasPlaying: false,
+
+				_lockedTool: null,
+
+				_lastTool: null,
+
+				_lastX: null,
+
+				_lastY: null,
+
+				_lastEventTimeStamp: 0,
+
+				_pointerType: null,
+
+				_altPointerMove: null,
+
+				_altPointerFrame: null,
+
+				_sketchRipPointerMove: null,
+
+				_sketchRipInterval: null,
+
+				// Public methods
+
+				play: function () {
+					this._clear()
+					this._setPlaying(true)
+					this._playProgressLines = 0
+					this._playProgressPoints = 0
+					this._lastTimestamp = null
+					window.requestAnimationFrame(this._animate.bind(this))
+				},
+
+				stop: function (render = false) {
+					this._setPlaying(false)
+					if (render) {
+						this._render()
+					}
+				},
+
+				undo: function (event) {
+					if (!this.disabled) {
+						this.$.data.undo()
+						this._render()
+					}
+				},
+
+				redo: function (event) {
+					if (!this.disabled) {
+						this.$.data.redo()
+						this._render()
+					}
+				},
+
+				flip: function () {
+					this.flipped = !this.flipped
+				},
+
+				refreshLines: function () {
+					this.$.data.refreshLines()
+					this._render()
+				},
+
+				computeInk: function (maxLength, dataLength) {
+					return dataLength / maxLength
+				},
+
+				copyCanvas: function () {
+					this.$.sketchCanvas.toBlob((blob) => {
+						navigator.clipboard.write([
+							new ClipboardItem({ "image/png": blob }),
+						])
+					})
+				},
+
+				// Private methods
+				// Property observers
+
+				_onIronResize: function (event) {
+					this._bounds = this.getBoundingClientRect()
+				},
+
+				_onContextMenu(event) {
+					event.preventDefault()
+				},
+
+				_onPointerMove(event) {
+					if (
+						this.clientStyle == "sketch-rip" &&
+						event.type == "pointermove"
+					) {
+						this._sketchRipPointerMove = {
+							buttons: event.buttons,
+							clientX: event.clientX,
+							clientY: event.clientY,
+							pointerId: event.pointerId,
+							pointerType: event.pointerType,
+							timeStamp: event.timeStamp,
+						}
+						return
+					}
+
+					if (this.clientStyle == "sketch-rip") {
+						const move = this._sketchRipPointerMove
+						this._sketchRipPointerMove = null
+						if (move) {
+							this._processEvent(move)
+						}
+					}
+
+					if (
+						this.clientStyle == "noz-alt" &&
+						event.type == "pointermove"
+					) {
+						this._altPointerMove = {
+							buttons: event.buttons,
+							clientX: event.clientX,
+							clientY: event.clientY,
+							pointerId: event.pointerId,
+							pointerType: event.pointerType,
+							timeStamp: event.timeStamp,
+						}
+
+						if (!this._altPointerFrame) {
+							this._altPointerFrame =
+								window.requestAnimationFrame(() => {
+									this._altPointerFrame = null
+									const move = this._altPointerMove
+									this._altPointerMove = null
+									if (move) {
+										this._processEvent(move)
+									}
+								})
+						}
+						return
+					}
+
+					if (this.clientStyle == "noz-alt") {
+						const move = this._altPointerMove
+						this._altPointerMove = null
+						if (move) {
+							this._processEvent(move)
+						}
+					}
+
+					let events = []
+
+					if (
+						this.clientStyle != "noz-alt" &&
+						event.getCoalescedEvents
+					) {
+						events = event.getCoalescedEvents()
+					}
+
+					if (events.length == 0) {
+						events = [event]
+					}
+
+					for (let e of events) {
+						this._processEvent(e)
+					}
+				},
+
+				_onToolLocked(event) {
+					if (!this._lockedTool) {
+						this._lockedTool = this.tool
+					}
+				},
+
+				_onToolChanged(event) {
+					if (this.drawing && !this.disabled) {
+						this._action(this._lastTool).end(
+							this._lastX,
+							this._lastY,
+						)
+						this._action(this.tool).start(this._lastX, this._lastY)
+					}
+
+					this._lastTool = this.tool
+				},
+
+				_onCursorChanged(event) {
+					this.updateStyles({ "--cursor": this.cursor })
+				},
+
+				_onClientStyleChanged() {
+					this._altPointerMove = null
+					this._sketchRipPointerMove = null
+					if (this._altPointerFrame) {
+						window.cancelAnimationFrame(this._altPointerFrame)
+						this._altPointerFrame = null
+					}
+					if (!this._canvas) {
+						return
+					}
+					this._render()
+				},
+
+				_onFlippedChanged(event) {
+					if (!this._readied) {
+						return
+					}
+
+					const transform = this.flipped ? { a: -1, e: 800 } : {}
+					this._canvas.setTransform(transform)
+					this._canvas2.setTransform(transform)
+					this._render()
+					if (this.drawing) {
+						// Keep rendering a line that's being drawn while flipping.
+						// It's kinda fun to look at.
+						this.$.data.currentLines.forEach((line) =>
+							this._drawLine(line),
+						)
+					}
+				},
+
+				_updateRendering: function (event) {
+					if (!this._canvas) {
+						return
+					}
+
+					this._canvas.strokeStyle = "black"
+					this._canvas.lineWidth = 3
+					this._canvas.fillStyle = "black"
+					this._canvas.lineJoin = "round"
+					this._canvas.lineCap = "round"
+
+					if (this.renderType == "gallery") {
+						this._canvas.lineCap = "butt"
+					}
+					if (this.renderType == "gallery-miter") {
+						this._canvas.lineCap = "butt"
+						this._canvas.lineJoin = "miter"
+						this._canvas.miterLimit = 10
+					}
+
+					this._setPlaying(false)
+					this._render()
+				},
+
+				// Pointer event handlers
+
+				_processEvent(event) {
+					if (this.playing) {
+						if (event.buttons > 0) {
+							this.stop()
+							this._wasPlaying = true
+						}
+						return
+					} else if (this._wasPlaying) {
+						if (event.buttons == 0) {
+							this._render()
+							this._wasPlaying = false
+						}
+						return
+					}
+
+					if (this.disabled) {
+						return
+					}
+
+					// thanks firefox
+					if (
+						this._pointerType != null &&
+						this._pointerType != event.pointerType
+					) {
+						return
+					}
+
+					if (this.ignoreTouch && event.pointerType == "touch") {
+						return
+					}
+
+					var pointerErasing =
+						event.buttons == 32 || event.buttons == 2
+					var pressed = event.buttons > 0
+
+					var tool = pointerErasing ? "eraser" : this.tool
+					var point = this._scaleCoordinates(
+						this._bounds,
+						event.clientX,
+						event.clientY,
+						800,
+						600,
+					)
+					var x = this.flipped ? 800 - point[0] : point[0]
+					var y = point[1]
+
+					var moved = !(this._lastX == x && this._lastY == y)
+					var isInBounds = x >= 0 && x < 800 && y >= 0 && y < 600
+					var wasInBounds =
+						this._lastX >= 0 &&
+						this._lastX < 800 &&
+						this._lastY >= 0 &&
+						this._lastY < 600
+
+					// prevent consecutive actions on the same coordinates
+					if (!moved && this._wasPressed == pressed) {
+						return
+					}
+
+					if (tool == "pan") {
+						return
+					}
+
+					if (pressed) {
+						this._pointerType =
+							this._pointerType == null
+								? event.pointerType
+								: this._pointerType
+						this._activeTool = pointerErasing ? "eraser" : null
+						if (this._wasPressed) {
+							const obeyTimeResolution =
+								tool == "pen" ||
+								tool == "eraser" ||
+								tool == "screentone"
+							if (
+								obeyTimeResolution &&
+								this.timeResolution != 0 &&
+								this._timeResolved(event.timeStamp) -
+									this._timeResolved(
+										this._lastEventTimeStamp,
+									) ==
+									0
+							) {
+								return
+							}
+							this._action(tool).middle(
+								x,
+								y,
+								this._lastX,
+								this._lastY,
+							)
+						} else {
+							if (!this.lockTool) {
+								this._lockedTool = null
+							}
+
+							this.$.sketchCanvas.setPointerCapture(
+								event.pointerId,
+							)
+							this._action(tool).start(x, y)
+							this._setDrawing(true)
+						}
+					} else if (this._wasPressed) {
+						this.$.sketchCanvas.releasePointerCapture(
+							event.pointerId,
+						)
+						this._action(tool).end(x, y)
+						this._setDrawing(false)
+
+						this._pointerType = null
+						this._activeTool = null
+					}
+
+					this._lastEventTimeStamp = event.timeStamp
+					this._wasPressed = pressed
+					this._lastX = x
+					this._lastY = y
+				},
+
+				_action: function (tool) {
+					if (this._lockedTool && this._lockedTool != tool) {
+						tool = null
+					}
+
+					switch (tool) {
+						case "pan":
+							return {
+								start: () => void 0,
+								middle: () => void 0,
+								end: () => void 0,
+							}
+						case "eraser":
+							return {
+								start: this._eraseStart.bind(this),
+								middle: this._erase.bind(this),
+								end: this._eraseEnd.bind(this),
+							}
+						case "pen":
+							return {
+								start: this._drawStart.bind(this),
+								middle: this._draw.bind(this),
+								end: this._drawEnd.bind(this),
+							}
+						case "move":
+							return {
+								start: this._moveStart.bind(this),
+								middle: this._move.bind(this),
+								end: this._moveEnd.bind(this),
+							}
+						case "screentone":
+							return {
+								start: this._toneStart.bind(this),
+								middle: this._tone.bind(this),
+								end: this._toneEnd.bind(this),
+							}
+						case "fill":
+							return {
+								start: () => void 0,
+								middle: () => void 0,
+								end: this._fill.bind(this),
+							}
+						default:
+							return {
+								start: () => void 0,
+								middle: () => void 0,
+								end: () => void 0,
+							}
+					}
+				},
+
+				_scaleCoordinates: function (bounds, x, y, width, height) {
+					const round =
+						this.clientStyle == "noz-alt" ||
+						this.clientStyle == "sketch-rip"
+							? Math.floor
+							: Math.round
+					x = round((width * (x - bounds.left)) / bounds.width)
+					y = round((height * (y - bounds.top)) / bounds.height)
+					if (this.clientStyle == "sketch-rip") {
+						x = Math.min(Math.max(x, 0), width)
+						y = Math.min(Math.max(y, 0), height)
+					}
+					return [x, y]
+				},
+
+				_timeResolved: function (n) {
+					return Math.floor(n / this.timeResolution)
+				},
+
+				// Tool handlers
+
+				_drawStart(x, y) {
+					this._canvas2.drawImage(this._canvas.canvas, 0, 0, 800, 600)
+					this.$.data.drawStart()
+					this._draw(x, y, x, y)
+				},
+
+				_draw(x, y, px, py) {
+					this._canvas.drawImage(this._canvas2.canvas, 0, 0, 800, 600)
+					this.$.data.draw(x, y, px, py)
+					this.$.data.currentLines.forEach((line) =>
+						this._drawLine(line),
+					)
+				},
+
+				_drawEnd(x, y) {
+					// Transform single dots into lines.
+					// Checking the last line instead of any other line was a bit
+					// of an arbitrary choice; even the first line would've worked.
+					const lastLine = this.$.data.currentLines.at(-1)
+					const lastLineIsDot = lastLine.length == 2
+					if (lastLineIsDot) {
+						this._draw(x, y, x, y)
+					}
+
+					this.$.data.drawEnd()
+				},
+
+				_eraseStart(x, y) {
+					this.$.data.eraseStart()
+					this._erase(x, y, x, y)
+				},
+
+				_erase(x, y, px, py) {
+					var erased = this.$.data.erase(
+						x,
+						y,
+						px,
+						py,
+						this.eraserRadius,
+						this.eraseStrokes,
+						this.eraseScreentoneOnly,
+					)
+					if (erased) {
+						this._render()
+					}
+				},
+
+				_eraseEnd(x, y) {
+					this.$.data.eraseEnd()
+				},
+
+				_fill(x, y) {
+					let fillLines
+					if (this.fillScreentone) {
+						fillLines = this.$.data.fill(
+							x,
+							y,
+							this.$.sketchCanvas,
+							"tone",
+							{
+								angle: 0,
+								tonePattern: this.tonePattern,
+								spacing: this.toneSpacing,
+							},
+						)
+					} else {
+						fillLines = this.$.data.fill(
+							x,
+							y,
+							this.$.sketchCanvas,
+							"normal",
+							{
+								angle: this.fillAngle,
+								spacing: this.fillSpacing,
+							},
+						)
+					}
+
+					for (const line of fillLines) {
+						this._drawLine(line)
+					}
+				},
+
+				_moveStart() {
+					this.$.data.moveStart()
+				},
+
+				_move(x, y, px, py) {
+					this.$.data.move(x, y, px, py)
+					this._render()
+				},
+
+				_moveEnd() {
+					this.$.data.moveEnd()
+				},
+
+				_miniMove(dx, dy) {
+					this.$.data.miniMove(dx, dy)
+					this._render()
+				},
+
+				_toneStart(x, y) {
+					this.$.data.toneStart()
+					this._tone(x, y, x, y)
+				},
+
+				_tone(x, y, px, py) {
+					const distance = Math.hypot(x - px, y - py)
+					const step = Math.max(1, this.toneSpacing / 2)
+					const steps = Math.max(1, Math.ceil(distance / step))
+
+					for (let i = 1; i <= steps; i++) {
+						const progress = i / steps
+						const toneX = Math.round(px + (x - px) * progress)
+						const toneY = Math.round(py + (y - py) * progress)
+						const tonePoints = this.$.data.tone(
+							toneX,
+							toneY,
+							px,
+							py,
+							{
+								pattern: this.tonePattern,
+								radius: this.toneRadius,
+								spacing: this.toneSpacing,
+							},
+						)
+					}
+					this._render()
+				},
+
+				_toneEnd(x, y) {
+					this.$.data.toneEnd()
+				},
+
+				// Rendering-related
+
+				_drawLine(points) {
+					const previousLineWidth = this._canvas.lineWidth
+					const isSquareArm =
+						points.tonePattern == "square" &&
+						points.length == 4 &&
+						(points[0] != points[2] || points[1] != points[3]) &&
+						((Math.abs(points[2] - points[0]) <= 3 &&
+							points[1] == points[3]) ||
+							(Math.abs(points[3] - points[1]) <= 3 &&
+								points[0] == points[2]))
+					if (points.crossTone || isSquareArm) {
+						const armLength = Math.max(
+							Math.abs(points[2] - points[0]),
+							Math.abs(points[3] - points[1]),
+						)
+						if (armLength == 1) {
+							this._canvas.fillRect(
+								Math.min(points[0], points[2]),
+								Math.min(points[1], points[3]),
+								Math.abs(points[2] - points[0]) + 1,
+								Math.abs(points[3] - points[1]) + 1,
+							)
+							return
+						}
+						if (armLength == 3 && points[1] == points[3]) {
+							this._canvas.fillRect(
+								Math.min(points[0], points[2]),
+								points[1] - 1,
+								3,
+								3,
+							)
+							return
+						}
+						this._canvas.lineWidth = armLength == 1 ? 2 : 1
+					}
+					const isDot =
+						points.length == 4 &&
+						points[0] == points[2] &&
+						points[1] == points[3]
+
+					if (isDot) {
+						if (
+							this.renderType == "gallery" ||
+							this.renderType == "gallery-miter"
+						) {
+							// This offset should shorten the screentone line if the top-left point
+							// ever goes OOB on the top and/or on the left side
+							const topleftOffset = Math.max(
+								points[0] - Math.max(points[0] - 1, 0),
+								points[1] - Math.max(points[1] - 1, 0),
+							)
+							points = [
+								points[0] - topleftOffset,
+								points[1] - topleftOffset,
+								points[0] + 1,
+								points[1] + 1,
+							]
+						} else {
+							this._canvas.beginPath()
+							this._canvas.arc(
+								points[0],
+								points[1],
+								1.5,
+								0,
+								Math.PI * 2,
+							)
+							this._canvas.fill()
+						}
+					}
+
+					this._canvas.beginPath()
+					this._canvas.moveTo(points[0], points[1])
+					for (var i = 2; i < points.length; i += 2) {
+						this._canvas.lineTo(points[i], points[i + 1])
+					}
+					this._canvas.stroke()
+					this._canvas.lineWidth = previousLineWidth
+				},
+
+				_clear() {
+					this._canvas.fillStyle = "white"
+					this._canvas.fillRect(0, 0, 800, 600)
+					this._canvas.fillStyle = "black"
+				},
+
+				_animate(timestamp) {
+					if (this._lastTimestamp) {
+						var _animationSpeed = Math.pow(
+							10,
+							this.animationSpeed / 10 + 1,
+						)
+
+						var timeDelta = timestamp - this._lastTimestamp
+						var pointsToDraw = (timeDelta / 1000) * _animationSpeed
+						var pointsDrawn = 0
+
+						while (pointsDrawn < pointsToDraw && this.playing) {
+							this._canvas.drawImage(
+								this._canvas2.canvas,
+								0,
+								0,
+								800,
+								600,
+							)
+							const sourceLine =
+								this.$.data.lines[this._playProgressLines]
+							const playbackLine = sourceLine.slice(
+								0,
+								this._playProgressPoints + 4,
+							)
+							playbackLine.tonePattern = sourceLine.tonePattern
+							playbackLine.crossTone = sourceLine.crossTone
+							this._drawLine(playbackLine)
+
+							pointsDrawn++
+							this._playProgressPoints += 2
+							if (
+								this._playProgressPoints >=
+								this.$.data.lines[this._playProgressLines]
+									.length -
+									2
+							) {
+								this._playProgressPoints = 0
+								this._playProgressLines++
+								this._canvas2.drawImage(
+									this._canvas.canvas,
+									0,
+									0,
+									800,
+									600,
+								)
+								if (
+									this._playProgressLines >=
+									this.$.data.lines.length
+								) {
+									break
+								}
+							}
+						}
+					} else {
+						this._canvas2.drawImage(
+							this._canvas.canvas,
+							0,
+							0,
+							800,
+							600,
+						)
+					}
+
+					this._lastTimestamp = timestamp
+
+					if (
+						this.playing &&
+						this._playProgressLines < this.$.data.lines.length
+					) {
+						window.requestAnimationFrame(this._animate.bind(this))
+					} else {
+						this._setPlaying(false)
+					}
+				},
+
+				async _render() {
+					this._keepRendering = true
+					if (!this._rendering) {
+						// This while loop acts as a debounce;
+						// subsequent _render calls would set _keepRendering to true and
+						// re-render the canvas once it's done painting.
+						while (this._keepRendering) {
+							this._keepRendering = false
+							this._rendering = true
+							this._renderInner()
+
+							// Give the canvas some time to do the render.
+							await new Promise((res, rej) =>
+								window.requestAnimationFrame(res),
+							)
+						}
+
+						this._rendering = false
+					}
+				},
+
+				_renderInner() {
+					this._clear()
+
+					for (var i in this.$.data.lines) {
+						this._drawLine(this.$.data.lines[i])
+					}
+				},
+
+				// Computed properties
+
+				_canEdit(canEdit, disabled) {
+					return canEdit && !disabled
+				},
+
+				_tool(desiredTool, activeTool, activeKeyTool) {
+					return activeKeyTool || activeTool || desiredTool
+				},
+
+				_eraseStrokes(setting, active) {
+					return active || setting
+				},
+
+				_cursor: function (
+					disabled,
+					tool,
+					eraseStrokes,
+					eraserRadius,
+					toneRadius,
+					bounds,
+				) {
+					if (!this._readied || disabled) {
+						return "crosshair"
+					}
+
+					const canvasRatio = bounds.width / this.$.sketchCanvas.width
+
+					switch (tool) {
+						case "pan":
+							return "inherit" // Inherit <zoom-container>'s cursor
+						case "eraser":
+							const thickness = eraseStrokes ? 4 : 2
+							return this._getRadiusCursorURI(
+								Math.round(eraserRadius * canvasRatio),
+								thickness,
+							)
+						case "screentone":
+							return this._getRadiusCursorURI(
+								Math.round(toneRadius * canvasRatio),
+							)
+						case "move":
+							return "move"
+						default:
+							return "crosshair"
+					}
+				},
+
+				_getRadiusCursorURI: function (radius, thickness = 2) {
+					const svgRadius = radius + 2 // +2 is the stroke width
+					const svgSize = (radius + 2) * 2
+					const svg = [
+						`<svg`,
+						`xmlns="http://www.w3.org/2000/svg"`,
+						`viewBox="0 0 ${svgSize} ${svgSize}"`,
+						`width="${svgSize}"`,
+						`height="${svgSize}">`,
+						`<circle`,
+						`cx="${svgRadius}"`,
+						`cy="${svgRadius}"`,
+						`r="${radius}"`,
+						`stroke="gray"`,
+						`stroke-width="${thickness}"`,
+						`fill-opacity="0"/>`,
+						`</svg>`,
+					].join(" ")
+
+					return `url('data:image/svg+xml,${svg}') ${svgRadius} ${svgRadius}, crosshair`
+				},
+			})
+		})()
+	</script>
+</dom-module>

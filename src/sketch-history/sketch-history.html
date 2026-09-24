@@ -1,0 +1,62 @@
+<script>
+  window.Sketch = window.Sketch || {};
+
+  /**
+   * @polymerBehavior
+   */
+  Sketch.HistoryBehavior = {
+    properties: {
+      history: {
+        type: Array,
+        value: [],
+      },
+      head: {
+        type: Number,
+        value: 0
+      },
+      canUndo: {
+        type: Boolean,
+        notify: true,
+        computed: '_canUndo(history, head)'
+      },
+      canRedo: {
+        type: Boolean,
+        notify: true,
+        computed: '_canRedo(history, head)'
+      }
+    },
+
+    pushHistory: function(action) {
+      this.history.length = this.head;
+      this.history.push(action);
+      this.head++;
+    },
+
+    clearHistory: function() {
+      this.history = [];
+      this.head = 0;
+    },
+
+    undo: function() {
+      if(this.canUndo) {
+        this.head--;
+        this.fire('undo', this.history[this.head]);
+      }
+    },
+
+    redo: function() {
+      if(this.canRedo) {
+        this.fire('redo', this.history[this.head]);
+        this.head++;
+      }
+    },
+
+    _canUndo: function(history, head) {
+      return head > 0;
+    },
+
+    _canRedo: function(history, head) {
+      return head < history.length;
+    }
+  };
+</script>

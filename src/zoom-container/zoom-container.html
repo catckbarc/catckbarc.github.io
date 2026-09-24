@@ -1,0 +1,929 @@
+<link rel="import" href="../../bower_components/polymer/polymer.html" />
+<link
+	rel="import"
+	href="../../bower_components/iron-flex-layout/iron-flex-layout.html"
+/>
+<link
+	rel="import"
+	href="../../bower_components/iron-resizable-behavior/iron-resizable-behavior.html"
+/>
+
+<dom-module id="zoom-container">
+	<template>
+		<style>
+			:host {
+				/* Pretty much how you'd normally fit a <div> */
+				@apply (--layout-fit);
+
+				/* Pretty much how you'd normally center a <div> */
+				@apply (--layout);
+				@apply (--layout-center);
+				@apply (--layout-center-justified);
+			}
+
+			:host[pannable] {
+				cursor: grab;
+			}
+
+			:host[pannable][panning] {
+				cursor: grabbing;
+			}
+
+			:host[pannable][drag-zooming] {
+				cursor: zoom-in;
+			}
+
+			:host[pannable][drag-zooming][drag-zoom-direction="out"] {
+				cursor: zoom-out;
+			}
+		</style>
+		<content></content>
+	</template>
+	<script>
+		// @ts-check
+
+		const component = {
+			is: "zoom-container",
+
+			behaviors: [Polymer.IronResizableBehavior],
+
+			listeners: {
+				"iron-resize": "_onIronResize",
+			},
+
+			properties: {
+				dimensions: {
+					type: String,
+					value: "1/1",
+					observer: "_onDimensionsChanged",
+				},
+
+				/**
+				 * Faux-margins around the content element for zoom-to-fit.
+				 * Prefer this over regular margins, since pointer events in that area
+				 * like clicking or scrolling wouldn't be picked up by listeners.
+				 */
+				margins: {
+					type: Number,
+					value: 16,
+				},
+
+				pannable: {
+					type: Boolean,
+					value: false,
+					reflectToAttribute: true,
+				},
+
+				panning: {
+					type: Boolean,
+					value: false,
+					notify: true,
+					readOnly: true,
+					reflectToAttribute: true,
+				},
+
+				fit: {
+					type: Boolean,
+					value: true,
+					reflectToAttribute: true,
+					observer: "_onFit",
+				},
+
+				zoom: {
+					type: Number,
+					value: 1, // Relative to the canvas elemt, not the viewport!
+					notify: true,
+					observer: "_onZoom",
+				},
+
+				percentZoom: {
+					type: Number,
+					notify: true,
+					computed: "_percentZoom(zoom)",
+				},
+
+				/**
+				 * Tells how offset our midpoint is from the viewport midpoint, from
+				 * the transform's perspective.
+				 */
+				position: {
+					type: Array,
+					value: [0, 0],
+				},
+
+				dragZooming: {
+					type: Boolean,
+					value: false,
+					reflectToAttribute: true,
+					observer: "_onDragZoomChanged",
+				},
+
+				dragZoomDirection: {
+					// options: "none", "in", "out"
+					type: String,
+					value: "none",
+					readOnly: true,
+					reflectToAttribute: true,
+				},
+
+				MINIMUM_ZOOM: {
+					type: Number,
+					value: 0.2,
+					readOnly: true,
+				},
+
+				MAXIMUM_ZOOM: {
+					type: Number,
+					value: 10,
+					readOnly: true,
+				},
+
+				// settings
+
+				enableScrollZooming: {
+					type: Boolean,
+					value: true,
+					notify: true,
+				},
+
+				steppedZoom: {
+					type: Boolean,
+					value: true,
+					notify: true,
+				},
+			},
+
+			_contentDimensions: {
+				width: 1,
+				height: 1,
+			},
+
+			_notifyZoom: true,
+
+			_notifyFit: true,
+
+			_updatingViewport: false,
+
+			/**
+			 * @type {PointerEvent[]}
+			 * The current pointers being pressed down.
+			 *
+			 * We're using this over something convenient like TouchEvent
+			 * mainly due to its lack of properties like `.pointerId` and
+			 * its lack of support on Safari (as of 2024-03-30).
+			 */
+			_pointers: [],
+
+			/** @type {number[]} The initial `this.position` of a move. */
+			_initialPosition: null,
+
+			/** @type {number[]} The initial cursor position of a move. */
+			_initialPointerPosition: null,
+
+			_initialZoom: null,
+
+			_initialPinchDistance: null,
+
+			_initialTapTimestamp: null,
+
+			_fitPreviousZoom: null,
+
+			// Getter/setter properties
+
+			get steps() {
+				return [
+					// These steps are mostly based off of Medibang's zoom steps.
+					this.MINIMUM_ZOOM,
+					1 / 4,
+					1 / 3,
+					1 / 2,
+					2 / 3,
+					1,
+					3 / 2,
+					2,
+					3,
+					4,
+					6,
+					8,
+					this.MAXIMUM_ZOOM,
+				]
+			},
+
+			get contentElement() {
+				return this.getContentChildren()[0]
+			},
+
+			set percentZoom(zoom) {
+				this.zoom = zoom / 100
+			},
+
+			// Computed getter properties
+
+			_percentZoom: function (zoom) {
+				return Math.round(zoom * 100)
+			},
+
+			// Public methods
+
+			/** @param {number} num */
+			getZoomStepBefore: function (num) {
+				const steps = this.steps
+				for (const rawInd in steps) {
+					const ind = parseInt(rawInd)
+					const step = steps[ind]
+					if (step >= num) {
+						const prevind = Math.max(0, ind - 1)
+						const prevstep = steps[prevind]
+						return prevstep
+					}
+				}
+				return this.MAXIMUM_ZOOM
+			},
+
+			/** @param {number} num */
+			getZoomStepAfter: function (num) {
+				const steps = this.steps
+				for (const step of steps) {
+					if (step > num) {
+						return step
+					}
+				}
+				return this.MAXIMUM_ZOOM
+			},
+
+			getFitZoom: function () {
+				return Math.min(
+					(this.offsetWidth - this.margins * 2) /
+						this._contentDimensions.width,
+					(this.offsetHeight - this.margins * 2) /
+						this._contentDimensions.height,
+				)
+			},
+
+			zoomStep: function (direction, x, y) {
+				const fitZoom = this.getFitZoom()
+				const zoomingIn = direction > 0
+				const currentZoom = this.zoom
+				const nextZoom = zoomingIn
+					? this.getZoomStepAfter(currentZoom)
+					: this.getZoomStepBefore(currentZoom)
+
+				if (
+					zoomingIn &&
+					!this.fit &&
+					currentZoom < fitZoom &&
+					nextZoom >= fitZoom
+				) {
+					this._fitPreviousZoom = currentZoom
+					this.fit = true
+					return
+				}
+
+				if (
+					!zoomingIn &&
+					!this.fit &&
+					currentZoom > fitZoom &&
+					nextZoom <= fitZoom
+				) {
+					this._fitPreviousZoom = nextZoom
+					this.fit = true
+					return
+				}
+
+				const targetZoom =
+					this.fit && !zoomingIn
+						? this._fitPreviousZoom || nextZoom
+						: nextZoom
+				if (this.fit) {
+					this.fit = false
+				}
+				this._zoomInto(
+					x == null ? this.offsetWidth / 2 : x,
+					y == null ? this.offsetHeight / 2 : y,
+					targetZoom,
+				)
+				this._fitPreviousZoom = null
+			},
+
+			// Event listeners
+
+			ready: function () {
+				// Safari/WebKit doesn't support screen.orientation as of 16.2.
+				// The "resize" event (and therefore _onIronResize) gets fired for
+				// orientation changes instead.
+				if (window.screen.orientation) {
+					window.screen.orientation.addEventListener(
+						"change",
+						this._onIronResize.bind(this),
+					)
+				}
+
+				this.addEventListener("wheel", this._onWheel.bind(this), {
+					passive: false,
+				})
+				this.addEventListener(
+					"pointerdown",
+					this._onPointerDown.bind(this),
+				)
+				this.addEventListener(
+					"pointermove",
+					this._onPointerMove.bind(this),
+				)
+				this.addEventListener("pointerup", this._onPointerUp.bind(this))
+				this.addEventListener(
+					"pointercancel",
+					this._onPointerUp.bind(this),
+				)
+			},
+
+			// IronResizeBehavior event listeners
+
+			_notifyAll: function (element) {
+				return true
+			},
+
+			_notifyNone: function (element) {
+				return false
+			},
+
+			_onDimensionsChanged: function (newValue, oldValue) {
+				var parts = newValue.toString().split("/")
+				this._contentDimensions.width = parseFloat(parts[0])
+				this._contentDimensions.height = parseFloat(parts[1] || 1)
+
+				this._onIronResize()
+			},
+
+			_onIronResize: function () {
+				if (this.resizerShouldNotify == this._notifyAll) {
+					return
+				}
+
+				if (this.fit) {
+					this._refitZoom()
+				}
+
+				this.resizerShouldNotify = this._notifyAll
+				this.notifyResize()
+				this.resizerShouldNotify = this._notifyNone
+			},
+
+			// Zooming event listeners
+
+			_onFit: function (newValue, oldValue) {
+				if (!this._readied) {
+					return
+				}
+
+				if (!oldValue && this.fit) {
+					const lastZoom = this.zoom
+
+					this.position[0] = 0
+					this.position[1] = 0
+					this._refitZoom()
+					const currentZoom = this.zoom
+
+					// Give the ability to make .fit reset all panning/zooming variables
+					// in case anything goes wrong with them.
+					this._resetInitials()
+
+					// If the zoom wasn't updated, then the viewport wasn't updated.
+					if (currentZoom == lastZoom) {
+						this._updateViewport()
+					}
+				}
+			},
+
+			_onZoom: function (newValue, oldValue) {
+				if (!this._readied || !this._notifyZoom) {
+					return
+				}
+
+				if (this._notifyFit) {
+					this.fit = false
+				}
+
+				this._notifyZoom = false
+				this.zoom = this._clamp(newValue, [
+					this.MINIMUM_ZOOM,
+					this.MAXIMUM_ZOOM,
+				])
+				this._restrictPosition()
+				this._notifyZoom = true
+
+				this._updateViewport()
+			},
+
+			_onDragZoomChanged: function (newToggled, oldToggled) {
+				if (!this.panning || this._pointers.length != 1) {
+					return
+				}
+
+				const pointer = this._pointers[0]
+
+				if (newToggled) {
+					this._initialPosition = this.position.slice()
+					this._initialPointerPosition = [
+						pointer.clientX,
+						pointer.clientY,
+					]
+					this._initialZoom = this.zoom
+				} else {
+					this._initialPosition = this.position.slice()
+					this._initialPointerPosition = [
+						pointer.clientX,
+						pointer.clientY,
+					]
+					this._initialZoom = null
+				}
+			},
+
+			_resetInitials: function () {
+				this._initialPosition = null
+				this._initialPointerPosition = null
+				this._initialZoom = null
+				this._initialPinchDistance = null
+			},
+
+			_refitZoom: function () {
+				this._notifyFit = false
+				const zoom = Math.min(
+					(this.offsetWidth - this.margins * 2) /
+						this._contentDimensions.width,
+					(this.offsetHeight - this.margins * 2) /
+						this._contentDimensions.height,
+				)
+				this.zoom = zoom
+				this._notifyFit = true
+			},
+
+			// Mouse event listeners
+
+			/** @param {PointerEvent} pointer */
+			_getCachedPointer: function (pointer) {
+				const [cachedPointer] = this._pointers.filter(
+					(p) => p.pointerId == pointer.pointerId,
+				)
+				return cachedPointer
+			},
+
+			/** @param {PointerEvent} pointer */
+			_removePointer: function (pointer) {
+				const cachedPointer = this._getCachedPointer(pointer)
+				if (!cachedPointer) {
+					return
+				}
+
+				const index = this._pointers.indexOf(cachedPointer)
+				this._pointers.splice(index, 1)
+			},
+
+			/** @param {PointerEvent} pointer */
+			_replacePointer: function (pointer) {
+				const cachedPointer = this._getCachedPointer(pointer)
+				if (!cachedPointer) {
+					return
+				}
+
+				const index = this._pointers.indexOf(cachedPointer)
+				this._pointers.splice(index, 1, pointer)
+			},
+
+			/** @param {PointerEvent} event */
+			_onPointerDown: function (event) {
+				if (!this.pannable) {
+					// Release implicit pointer capture on touch-capable devices.
+					// https://w3c.github.io/pointerevents/#dfn-implicit-pointer-capture
+					if (this.hasPointerCapture(event.pointerId)) {
+						this.releasePointerCapture(event.pointerId)
+					}
+					return
+				}
+
+				this.setPointerCapture(event.pointerId)
+
+				const oldPointers = this._pointers.slice()
+				this._removePointer(event)
+				this._pointers.push(event)
+
+				if (oldPointers.length == 1) {
+					const event = oldPointers[0]
+					this._singlePointerUp(event)
+				} else if (oldPointers.length >= 2) {
+					this._multiPointerUp(oldPointers)
+				}
+				if (this._pointers.length == 1) {
+					this._singlePointerDown(event)
+				} else if (this._pointers.length >= 2) {
+					this._multiPointerDown(this._pointers)
+				}
+			},
+
+			/** @param {PointerEvent} event */
+			_onPointerMove: function (event) {
+				if (!this.pannable) {
+					return
+				}
+
+				// Ignore any `pointermove` events that trigger immediately after
+				// `pointerdown` events, even though cursor position hasn't
+				// actually changed.
+				// THis is a Chrome bug; see: https://crbug.com/41435421
+				const cachedEvent = this._getCachedPointer(event)
+				if (
+					cachedEvent &&
+					cachedEvent.clientX == event.clientX &&
+					cachedEvent.clientY == event.clientY
+				) {
+					return
+				}
+
+				// Replace the pointer with a more up-to-date version of the pointer
+				this._replacePointer(event)
+
+				if (this._pointers.length == 1) {
+					this._singlePointerMove(event)
+				} else if (this._pointers.length >= 2) {
+					this._multiPointerMove(this._pointers)
+				}
+			},
+
+			/** @param {PointerEvent} event */
+			_onPointerUp: function (event) {
+				// Ignore the `this.pannable` early return on purpose;
+				// we wanna keep picking up pointerUps again to disable .panning
+				// in case .pannable gets suddenly disarmed.
+
+				const oldPointers = this._pointers.slice()
+				this._removePointer(event)
+
+				if (oldPointers.length == 1) {
+					this._singlePointerUp(event)
+				} else if (oldPointers.length >= 2) {
+					this._multiPointerUp(oldPointers)
+				}
+				if (this._pointers.length == 1) {
+					const event = this._pointers[0]
+					this._singlePointerDown(event)
+
+					// Suppress potential "double-taps" caused by _singlePointerDown().
+					// I should probably put this line somewhere else.
+					this._initialTapTimestamp = null
+				} else if (this._pointers.length >= 2) {
+					this._multiPointerDown(this._pointers)
+				}
+			},
+
+			/** @param {PointerEvent} pointer */
+			_singlePointerDown: function (pointer) {
+				if (pointer.buttons == 4) {
+					this.fit = true
+					return
+				}
+
+				if (this._initialTapTimestamp) {
+					const doubleTapInterval = 600
+					const delta = performance.now() - this._initialTapTimestamp
+					if (delta <= doubleTapInterval) {
+						this._initialTapTimestamp = null
+						this.fit = true
+						return
+					}
+				}
+
+				this._initialTapTimestamp = performance.now()
+
+				this.fit = false
+				this._setPanning(true)
+				this._initialPosition = this.position.slice()
+				this._initialPointerPosition = [
+					pointer.clientX,
+					pointer.clientY,
+				]
+
+				if (this.dragZooming) {
+					this._initialZoom = this.zoom
+					this._setDragZoomDirection("none")
+				}
+			},
+
+			/** @param {PointerEvent} pointer */
+			_singlePointerMove: function (pointer) {
+				if (!this.panning) {
+					return
+				}
+
+				this._initialTapTimestamp = null
+
+				this.fit = false
+				const x = pointer.clientX
+				const y = pointer.clientY
+
+				if (this.dragZooming) {
+					this._dragZoomFromInitial(x, y)
+				} else {
+					this._panFromInitial(x, y)
+				}
+			},
+
+			/** @param {PointerEvent} pointer */
+			_singlePointerUp: function (pointer) {
+				if (!this.panning) {
+					return
+				}
+
+				this._setPanning(false)
+				this._initialPosition = null
+				this._initialPointerPosition = null
+
+				if (this.dragZooming) {
+					this._initialZoom = null
+					this._setDragZoomDirection("none")
+				}
+			},
+
+			/** @param {PointerEvent[]} pointers */
+			_multiPointerDown: function (pointers) {
+				const pinchDistance = this._getPinchDistance(pointers)
+				const [x, y] = this._getPinchMidpoint(pointers)
+
+				this._initialTapTimestamp = null
+
+				this.fit = false
+				this._setPanning(true)
+				this._initialPosition = this.position.slice()
+				this._initialPointerPosition = [x, y]
+				this._initialZoom = this.zoom
+				this._initialPinchDistance = pinchDistance
+			},
+
+			/** @param {PointerEvent[]} pointers */
+			_multiPointerMove: function (pointers) {
+				if (!this.panning) {
+					return
+				}
+
+				const pinchDistance = this._getPinchDistance(pointers)
+				const [x, y] = this._getPinchMidpoint(pointers)
+
+				this.fit = false
+				this._zoomFromInitialPinch(x, y, pinchDistance)
+			},
+
+			/** @param {PointerEvent[]} pointers */
+			_multiPointerUp: function (pointers) {
+				if (!this.panning) {
+					return
+				}
+
+				this._setPanning(false)
+				this._initialPosition = null
+				this._initialPointerPosition = null
+				this._initialZoom = null
+				this._initialPinchDistance = null
+			},
+
+			/** @param {WheelEvent} event */
+			_onWheel: function (event) {
+				if (!this.enableScrollZooming) {
+					return
+				}
+
+				let deltaY = event.deltaY
+
+				// Clamp scroll values to at least 120 from either direction.
+				// Values from touchpad scrolls tend to go below them.
+				// Values from non-pixel `event.deltaMode`s do too,
+				// so for consistency's sake, they'll be counted too.
+				//
+				// Further reading on how browsers and OSs set `event.deltaY`:
+				// https://github.com/basilfx/normalize-wheel/blob/master/src/normalizeWheel.js
+				// (it's also where the arbitrary 120 is from)
+				deltaY =
+					deltaY > 0 ? Math.max(120, deltaY) : Math.min(-120, deltaY)
+
+				if (this.steppedZoom) {
+					this.zoomStep(
+						deltaY > 0 ? -1 : 1,
+						event.clientX,
+						event.clientY,
+					)
+				} else {
+					const zoomFactor =
+						deltaY > 0 ? 100 / deltaY : -(deltaY / 100)
+					this._zoomInto(
+						event.clientX,
+						event.clientY,
+						this.zoom * zoomFactor,
+					)
+				}
+
+				event.preventDefault()
+			},
+
+			// Zooming/panning methods
+
+			/**
+			 * Clamps a given value to a given minimum/maximum.
+			 *
+			 * @param {number} n
+			 * @param {[number, number]}
+			 *    The minimum and maximum values to clamp to, respectively.
+			 */
+			_clamp: function (n, [min, max]) {
+				return Math.min(max, Math.max(min, n))
+			},
+
+			/**
+			 * @param {PointerEvent[]} pointers
+			 */
+			_getPinchDistance: function (pointers) {
+				const xs = pointers.map((p) => p.clientX)
+				const ys = pointers.map((p) => p.clientY)
+				const minX = Math.min(...xs)
+				const minY = Math.min(...ys)
+				const pinchDistance = Math.hypot(
+					Math.min(...xs) - Math.max(...xs),
+					Math.min(...ys) - Math.max(...ys),
+				)
+				return pinchDistance
+			},
+
+			/**
+			 * @param {PointerEvent[]} pointers
+			 * @returns {[number, number]}
+			 *    The midpoint's [x,y].
+			 */
+			_getPinchMidpoint: function (pointers) {
+				const xs = pointers.map((p) => p.clientX)
+				const ys = pointers.map((p) => p.clientY)
+				const x = xs.reduce((acc, x) => acc + x) / pointers.length
+				const y = ys.reduce((acc, y) => acc + y) / pointers.length
+				return [x, y]
+			},
+
+			/**
+			 * Pans from an initial point to a given point.
+			 * An initial position from `this.position` and viewport pointer position
+			 * must be first set, otherwise, this does nothing.
+			 *
+			 * @param {number} x
+			 * @param {number} y
+			 */
+			_panFromInitial: function (x, y) {
+				if (!this._initialPosition || !this._initialPointerPosition) {
+					return
+				}
+
+				const [iPosX, iPosY] = this._initialPosition
+				const [ix, iy] = this._initialPointerPosition
+				const distanceX = x - ix
+				const distanceY = y - iy
+				this.position[0] = iPosX - distanceX / this.zoom
+				this.position[1] = iPosY - distanceY / this.zoom
+				this._restrictPosition()
+
+				this._updateViewport()
+			},
+
+			/**
+			 * Limits the current position to at least 100px from any edge.
+			 *
+			 * @param {number?} zoom
+			 */
+			_restrictPosition: function (zoom = this.zoom) {
+				const minPositionOffset = 100
+				let limX =
+					(this.clientWidth / 2 - minPositionOffset) / zoom +
+					this.contentElement.clientWidth / 2
+				let limY =
+					(this.clientHeight / 2 - minPositionOffset) / zoom +
+					this.contentElement.clientHeight / 2
+				this.position[0] = this._clamp(this.position[0], [-limX, limX])
+				this.position[1] = this._clamp(this.position[1], [-limY, limY])
+			},
+
+			/**
+			 * Zooms the container into a given point.
+			 *
+			 * @param {number} x
+			 * @param {number} y
+			 * @param {number} zoom
+			 *    The target zoom level. Do note that the final zoom level would be clamped
+			 *    to MINIMUM_ZOOM and MAXIMUM_ZOOM.
+			 */
+			_zoomInto: function (x, y, zoom) {
+				const currentZoom = this.zoom
+				zoom = this._clamp(zoom, [this.MINIMUM_ZOOM, this.MAXIMUM_ZOOM])
+
+				// Offset `this.position` towards [x,y] in the current zoom,
+				// then offset away from it with the same distance in the new zoom.
+				const rect = this.getBoundingClientRect()
+				const viewportX = x - rect.left - rect.width / 2
+				const viewportY = y - rect.top - rect.height / 2
+				this.position[0] =
+					viewportX / currentZoom +
+					this.position[0] -
+					viewportX / zoom
+				this.position[1] =
+					viewportY / currentZoom +
+					this.position[1] -
+					viewportY / zoom
+				this._restrictPosition(zoom)
+
+				this.zoom = zoom
+			},
+
+			/**
+			 * @param {number} x
+			 * @param {number} y
+			 * @param {number} pinchDistance
+			 */
+			_zoomFromInitialPinch: function (x, y, pinchDistance) {
+				if (
+					this._initialPosition == null ||
+					this._initialPointerPosition == null ||
+					this._initialZoom == null ||
+					this._initialPinchDistance == null
+				) {
+					return
+				}
+
+				const ratio = pinchDistance / this._initialPinchDistance
+				const initialZoom = this._initialZoom
+				const zoom = this._clamp(this._initialZoom * ratio, [
+					this.MINIMUM_ZOOM,
+					this.MAXIMUM_ZOOM,
+				])
+
+				// Same with _zoomInto's zooming, except we're offsetting it towards,
+				// and away from, the initial pointer position.
+				// Then, normal panning rules are be applied.
+				const rect = this.getBoundingClientRect()
+				const [ix, iy] = this._initialPointerPosition
+				const viewportX = ix - rect.left - rect.width / 2
+				const viewportY = iy - rect.top - rect.height / 2
+				const distanceX = x - ix
+				const distanceY = y - iy
+				this.position[0] =
+					viewportX / initialZoom +
+					this._initialPosition[0] -
+					(viewportX + distanceX) / zoom
+				this.position[1] =
+					viewportY / initialZoom +
+					this._initialPosition[1] -
+					(viewportY + distanceY) / zoom
+				this._restrictPosition(zoom)
+
+				this.zoom = zoom
+			},
+
+			/**
+			 * @param {number} x
+			 * @param {number} y
+			 */
+			_dragZoomFromInitial: function (x, y) {
+				if (
+					this._initialPointerPosition == null ||
+					this._initialZoom == null
+				) {
+					return
+				}
+
+				const minDist = 150
+				const [ix, iy] = this._initialPointerPosition
+				const ratio = (iy - y) / minDist
+				const newZoom = 2 ** ratio * this._initialZoom
+				const zoomDirection = newZoom > this._initialZoom ? "in" : "out"
+
+				this._setDragZoomDirection(zoomDirection)
+				this._zoomInto(ix, iy, newZoom)
+			},
+
+			// Throttle calls to the transform by RAF, as an effort to reduce DOM jank.
+			_updateViewport: function () {
+				if (this._updatingViewport) {
+					return
+				}
+
+				this._updatingViewport = true
+				this.__updateViewport()
+				window.requestAnimationFrame(
+					() => (this._updatingViewport = false),
+				)
+			},
+
+			__updateViewport: function () {
+				const x = Math.floor(-this.position[0] * this.zoom)
+				const y = Math.floor(-this.position[1] * this.zoom)
+				this.contentElement.style.transform = `matrix(${this.zoom}, 0, 0, ${this.zoom}, ${x}, ${y})`
+
+				// Notify about the canvas bounding rect change down the chain
+				this.notifyResize()
+			},
+		}
+
+		// @ts-ignore
+		Polymer(component)
+	</script>
+</dom-module>
