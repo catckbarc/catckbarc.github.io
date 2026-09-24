@@ -2,19 +2,7 @@ A fork of **Quackbarc**'s client for noz.rip.
 
 **Quackbarc**'s client: https://github.com/quackbarc/sketch
 ## Meow
-99.9% of this code was AI coded, this would have been impossible to do from scratch without all the existing foundation, all credit goes to **QB**'s wonderful code
-
-**Notable changes:**
-- menu bug fixes
-- sketches in last 5 minutes update fix
-- wrong captcha request fix
-- Loading... after send fix
-- High move tool local storage usage
-additions:
-- UI changes and additions
-- Noz and Garyc clientstyles, replicates the pointer events similar to respective clients
-- Zoom dimentions display and behavior
-
+This would have been impossible to do from scratch without all the existing foundation, all credit goes to **QB**'s wonderful code
 ---
 
 ## Development
