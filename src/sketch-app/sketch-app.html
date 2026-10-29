@@ -771,8 +771,8 @@
 			:host[toolbar-position="right"] {
 				--vertical-toolbar-width: 52px;
 
-				--paper-toolbar-height: 100dvh;
-				--paper-toolbar-sm-height: 100dvh;
+				--paper-toolbar-height: 100%;
+				--paper-toolbar-sm-height: 100%;
 
 				--paper-toolbar-content: {
 					flex-direction: column;
@@ -1533,12 +1533,14 @@
 					<paper-item class="settings-item slider">
 						<paper-item-body two-line>
 							<div>Sample rate</div>
-							<div secondary>Input latency (ms)</div>
+							<div secondary>
+								Input latency (ms). Noz style: polling rate
+							</div>
 						</paper-item-body>
 						<paper-slider
 							value="{{timeResolution}}"
 							min="0"
-							max="50"
+							max="60"
 							editable
 						></paper-slider>
 					</paper-item>
@@ -1662,6 +1664,14 @@
 					<paper-icon-item class="button-item" on-tap="_save">
 						<iron-icon item-icon icon="save"></iron-icon>
 						<div>Save as PNG</div>
+					</paper-icon-item>
+					<paper-icon-item
+						disabled="[[!infiniteCanvas]]"
+						class="button-item"
+						on-tap="_saveFullArea"
+					>
+						<iron-icon item-icon icon="save"></iron-icon>
+						<div>Save full drawn area as PNG</div>
 					</paper-icon-item>
 					<paper-icon-item class="button-item" on-tap="_saveSVG">
 						<iron-icon
@@ -1893,6 +1903,42 @@
 					this._saveData.bind(this),
 				)
 				window.addEventListener("pagehide", this._saveData.bind(this))
+				// Mobile browsers often kill the page without pagehide/unload,
+				// so also save whenever the page is backgrounded.
+				document.addEventListener("visibilitychange", () => {
+					if (document.hidden) this._saveData()
+				})
+				// Quick save shortly after the drawing changes.
+				setInterval(() => {
+					var data = this.$.sketch.$.data
+					var sig = data.head + ":" + data.history.length
+					if (sig != this._lastSaveSig) {
+						this._lastSaveSig = sig
+						this._saveData()
+					}
+				}, 2000)
+
+				// Remember fullscreen. Browsers only allow entering fullscreen
+				// from a user gesture, so it is re-entered on the first tap/key.
+				document.addEventListener("fullscreenchange", () => {
+					if (!document.hidden) {
+						this._wantFullscreen = !!document.fullscreenElement
+						this._saveData()
+					}
+				})
+				if (this._wantFullscreen && !document.fullscreenElement) {
+					const reenter = () => {
+						window.removeEventListener("pointerup", reenter, true)
+						window.removeEventListener("keydown", reenter, true)
+						if (!document.fullscreenElement) {
+							document.documentElement
+								.requestFullscreen()
+								.catch(() => {})
+						}
+					}
+					window.addEventListener("pointerup", reenter, true)
+					window.addEventListener("keydown", reenter, true)
+				}
 				window.addEventListener("resize", this._hideStats.bind(this))
 				setInterval(this._saveData.bind(this), 10000)
 
@@ -2219,6 +2265,7 @@
 					infiniteCanvas: this.infiniteCanvas,
 					backgroundType: this.backgroundType,
 					enableScrollZooming: this.$.container.enableScrollZooming,
+					fullscreen: this._wantFullscreen,
 				}
 
 				// Keep the last view (fit state, zoom and pan) across refreshes.
@@ -2278,6 +2325,7 @@
 					this._setSetting("backgroundType", settings)
 					this._setSetting("enableScrollZooming", settings)
 					this._savedView = settings.view || null
+					this._wantFullscreen = !!settings.fullscreen
 				}
 
 				var save = JSON.parse(localStorage.getItem("save" + this.tabID))
@@ -2629,6 +2677,14 @@
 				this.$.api.save(this.$.sketch.canvasURL)
 			},
 
+			_saveFullArea: function () {
+				const url = this.$.sketch.getFullAreaURL(10)
+				if (!url) {
+					return this._alert("can't save an empty sketch")
+				}
+				this.$.api.save(url)
+			},
+
 			_saveSVG: function () {
 				this.$.api.saveSVG(this.$.sketch.$.data.lines)
 			},
@@ -2806,6 +2862,10 @@
 			_restoreView: function () {
 				const view = this._savedView
 				const container = this.$.container
+				if (view && view.fit) {
+					container.fit = false
+					container.fit = true
+				}
 				if (
 					view &&
 					!view.fit &&
@@ -2827,43 +2887,48 @@
 			_resetCanvasSize: function () {
 				const container = this.$.container
 
-				if (!this.infiniteCanvas) {
-					// Toggles between 800 x 600 and fit-on-screen.
-					if (
-						!container.fit &&
-						container.zoom === 1 &&
-						container.position[0] === 0 &&
-						container.position[1] === 0
-					) {
+				// Toggles between 800 x 600 and fit-on-screen, judged by what is
+				// actually shown so both infinite-canvas modes behave the same.
+				const atActualSize =
+					Math.abs(container.zoom - 1) < 0.001 &&
+					container.position[0] === 0 &&
+					container.position[1] === 0
+				const screenFit = Math.min(
+					container.getScreenFitZoom(),
+					container.MAXIMUM_ZOOM,
+				)
+
+				const showActualSize = () => {
+					if (this.infiniteCanvas) {
+						container.fit = false
+						container.fit = true
+					} else {
+						container.fit = false
+						container.position = [0, 0]
+						container.zoom = 1
+						container._restrictPosition(1)
+						container.__updateViewport()
+						container.notifyResize()
+					}
+				}
+				const showScreenFit = () => {
+					if (!this.infiniteCanvas) {
+						container.fit = false
 						container.fit = true
 						return
 					}
 					container.fit = false
 					container.position = [0, 0]
-					container.zoom = 1
-					container._restrictPosition(1)
-					container.__updateViewport()
-					container.notifyResize()
-					return
-				}
-
-				// With the infinite canvas, fit is 800 x 600; this toggles between
-				// that and fit-on-screen.
-				const atActualSize = container.fit && container.zoom === 1
-
-				if (atActualSize) {
-					container.fit = false
-					container.position = [0, 0]
-					container.zoom = Math.min(
-						container.getScreenFitZoom(),
-						container.MAXIMUM_ZOOM,
-					)
+					container.zoom = screenFit
 					container._restrictPosition(container.zoom)
 					container.__updateViewport()
 					container.notifyResize()
+				}
+
+				if (atActualSize && Math.abs(screenFit - 1) >= 0.001) {
+					showScreenFit()
 				} else {
-					container.fit = false
-					container.fit = true
+					showActualSize()
 				}
 			},
 

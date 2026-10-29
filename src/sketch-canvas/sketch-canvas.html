@@ -46,6 +46,8 @@
 				position: absolute;
 				left: -1000px;
 				top: -1000px;
+				/* Behind the drawing canvas, so it can never cover it. */
+				z-index: -1;
 				pointer-events: none;
 				display: none;
 			}
@@ -332,6 +334,61 @@
 					return this.$.sketchCanvas.toDataURL("image/png")
 				},
 
+				// Renders every stroke, including the ones outside the 800x600
+				// canvas, cropped to the inked area plus a margin.
+				getFullAreaURL: function (margin = 10) {
+					const lines = this.$.data.lines
+					let minX = Infinity,
+						minY = Infinity,
+						maxX = -Infinity,
+						maxY = -Infinity
+					lines.forEach((line) => {
+						for (let i = 0; i < line.length; i += 2) {
+							minX = Math.min(minX, line[i])
+							maxX = Math.max(maxX, line[i])
+							minY = Math.min(minY, line[i + 1])
+							maxY = Math.max(maxY, line[i + 1])
+						}
+					})
+					if (!isFinite(minX)) {
+						return null
+					}
+
+					const width = maxX - minX + 1 + margin * 2
+					const height = maxY - minY + 1 + margin * 2
+					const out = document.createElement("canvas")
+					out.width = width
+					out.height = height
+					const ctx = out.getContext("2d", { alpha: false })
+					ctx.fillStyle = "white"
+					ctx.fillRect(0, 0, width, height)
+					ctx.strokeStyle = "black"
+					ctx.fillStyle = "black"
+					ctx.lineWidth = 3
+					ctx.lineJoin = "round"
+					ctx.lineCap = "round"
+					if (this.renderType == "gallery") {
+						ctx.lineCap = "butt"
+					}
+					if (this.renderType == "gallery-miter") {
+						ctx.lineCap = "butt"
+						ctx.lineJoin = "miter"
+						ctx.miterLimit = 10
+					}
+					ctx.translate(margin - minX, margin - minY)
+
+					const realCanvas = this._canvas
+					this._canvas = ctx
+					this._overflowEnabled = false
+					try {
+						lines.forEach((line) => this._drawLine(line))
+					} finally {
+						this._canvas = realCanvas
+						this._overflowEnabled = true
+					}
+					return out.toDataURL("image/png")
+				},
+
 				// Private properties
 
 				_activeKeyTool: null,
@@ -508,10 +565,27 @@
 				},
 
 				_onPointerMove(event) {
+					const nozThrottled =
+						this.clientStyle == "noz-alt" &&
+						event.type == "pointermove" &&
+						event.buttons != 32 &&
+						event.buttons != 2 &&
+						this.tool == "pen"
+
 					if (
 						this.clientStyle == "noz-alt" &&
-						event.type == "pointermove"
+						event.type == "pointermove" &&
+						!nozThrottled
 					) {
+						// eraser/screentone are not polled; flush any pending pen move first
+						const pending = this._altPointerMove
+						this._altPointerMove = null
+						if (pending) {
+							this._processEvent(pending)
+						}
+					}
+
+					if (nozThrottled) {
 						this._altPointerMove = {
 							buttons: event.buttons,
 							clientX: event.clientX,
@@ -522,15 +596,9 @@
 						}
 
 						if (!this._altPointerFrame) {
-							this._altPointerFrame =
-								window.requestAnimationFrame(() => {
-									this._altPointerFrame = null
-									const move = this._altPointerMove
-									this._altPointerMove = null
-									if (move) {
-										this._processEvent(move)
-									}
-								})
+							this._altPointerFrame = window.requestAnimationFrame(
+								this._altPoll.bind(this),
+							)
 						}
 						return
 					}
@@ -559,6 +627,31 @@
 					for (let e of events) {
 						this._processEvent(e)
 					}
+				},
+
+				// Noz polling: the latest pointer position is sampled once per
+				// animation frame, but no more often than every `timeResolution` ms
+				// (0 = every frame).
+				_altPoll() {
+					this._altPointerFrame = null
+					const move = this._altPointerMove
+					if (!move) {
+						return
+					}
+					const now = performance.now()
+					if (
+						this.timeResolution > 0 &&
+						this._altLastPoll != null &&
+						now - this._altLastPoll < this.timeResolution
+					) {
+						this._altPointerFrame = window.requestAnimationFrame(
+							this._altPoll.bind(this),
+						)
+						return
+					}
+					this._altLastPoll = now
+					this._altPointerMove = null
+					this._processEvent(move)
 				},
 
 				_onToolLocked(event) {
@@ -736,9 +829,8 @@
 						this._activeTool = pointerErasing ? "eraser" : null
 						if (this._wasPressed) {
 							const obeyTimeResolution =
-								tool == "pen" ||
-								tool == "eraser" ||
-								tool == "screentone"
+								this.clientStyle != "noz-alt" &&
+								tool == "pen"
 							if (
 								obeyTimeResolution &&
 								this.timeResolution != 0 &&
@@ -862,6 +954,17 @@
 				},
 
 				_draw(x, y, px, py) {
+					if (this.clientStyle == "noz-alt") {
+						// Noz skips a point identical to the previous one.
+						const last = this.$.data.currentLines.at(-1)
+						if (
+							last.length >= 2 &&
+							last.at(-2) == x &&
+							last.at(-1) == y
+						) {
+							return
+						}
+					}
 					this._canvas.drawImage(this._canvas2.canvas, 0, 0, 800, 600)
 					this.$.data.draw(x, y, px, py)
 					this._overflowEnabled = false
@@ -899,7 +1002,12 @@
 					const lastLine = this.$.data.currentLines.at(-1)
 					const lastLineIsDot = lastLine.length == 2
 					if (lastLineIsDot) {
-						this._draw(x, y, x, y)
+						// Noz records a tap as a short diagonal line to (x+2, y+2).
+						if (this.clientStyle == "noz-alt") {
+							this._draw(x + 2, y + 2, x, y)
+						} else {
+							this._draw(x, y, x, y)
+						}
 					}
 
 					this.$.data.drawEnd()

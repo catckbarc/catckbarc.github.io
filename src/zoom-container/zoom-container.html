@@ -281,6 +281,32 @@
 					? this.getZoomStepAfter(currentZoom)
 					: this.getZoomStepBefore(currentZoom)
 
+				// With the infinite canvas "fit" is 800 x 600, so fit-to-screen
+				// is kept as an extra stop on the zoom ladder.
+				const screenFit = this.getScreenFitZoom()
+				if (
+					this.infiniteCanvas &&
+					Math.abs(screenFit - fitZoom) > 0.001 &&
+					screenFit >= this.MINIMUM_ZOOM &&
+					screenFit <= this.MAXIMUM_ZOOM &&
+					Math.abs(currentZoom - screenFit) > 0.001 &&
+					((zoomingIn &&
+						currentZoom < screenFit &&
+						nextZoom >= screenFit) ||
+						(!zoomingIn &&
+							currentZoom > screenFit &&
+							nextZoom <= screenFit))
+				) {
+					this.fit = false
+					this.position[0] = 0
+					this.position[1] = 0
+					this.zoom = screenFit
+					this._restrictPosition(screenFit)
+					this.__updateViewport()
+					this._fitPreviousZoom = null
+					return
+				}
+
 				if (
 					zoomingIn &&
 					!this.fit &&
@@ -298,7 +324,8 @@
 					currentZoom > fitZoom &&
 					nextZoom <= fitZoom
 				) {
-					this._fitPreviousZoom = nextZoom
+					this._fitPreviousZoom =
+						Math.abs(nextZoom - fitZoom) < 0.001 ? null : nextZoom
 					this.fit = true
 					return
 				}
@@ -368,8 +395,18 @@
 			},
 
 			_onInfiniteCanvasChanged: function () {
-				if (this._readied && this.fit) {
-					this._refitZoom()
+				if (!this._readied) {
+					return
+				}
+				// Keep what's on screen; only the meaning of "fit" changes.
+				const atFit =
+					Math.abs(this.zoom - this.getFitZoom()) < 0.001 &&
+					this.position[0] == 0 &&
+					this.position[1] == 0
+				if (atFit && !this.fit) {
+					this.fit = true
+				} else if (!atFit && this.fit) {
+					this.fit = false
 				}
 			},
 
