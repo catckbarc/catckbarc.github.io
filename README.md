@@ -1,10 +1,5 @@
 A fork of **Quackbarc**'s client for noz.rip.
 
-**Quackbarc**'s client: https://github.com/quackbarc/sketch
-## Meow
-This would have been impossible to do from scratch without all the existing foundation, all credit goes to **QB**'s wonderful code
----
-
 ## Development
 
 If you ever wish to work on the client on your own machine:
