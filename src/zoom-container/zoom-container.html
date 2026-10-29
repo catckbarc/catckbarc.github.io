@@ -89,6 +89,12 @@
 					observer: "_onFit",
 				},
 
+				infiniteCanvas: {
+					type: Boolean,
+					value: true,
+					observer: "_onInfiniteCanvasChanged",
+				},
+
 				zoom: {
 					type: Number,
 					value: 1, // Relative to the canvas elemt, not the viewport!
@@ -252,6 +258,13 @@
 			},
 
 			getFitZoom: function () {
+				// With the infinite canvas the default view is the content's
+				// actual size; otherwise it fills the screen.
+				return this.infiniteCanvas ? 1 : this.getScreenFitZoom()
+			},
+
+			// Zoom that makes the whole content visible within the margins.
+			getScreenFitZoom: function () {
 				return Math.min(
 					(this.offsetWidth - this.margins * 2) /
 						this._contentDimensions.width,
@@ -354,6 +367,12 @@
 				this._onIronResize()
 			},
 
+			_onInfiniteCanvasChanged: function () {
+				if (this._readied && this.fit) {
+					this._refitZoom()
+				}
+			},
+
 			_onIronResize: function () {
 				if (this.resizerShouldNotify == this._notifyAll) {
 					return
@@ -447,14 +466,17 @@
 
 			_refitZoom: function () {
 				this._notifyFit = false
-				const zoom = Math.min(
-					(this.offsetWidth - this.margins * 2) /
-						this._contentDimensions.width,
-					(this.offsetHeight - this.margins * 2) /
-						this._contentDimensions.height,
-				)
-				this.zoom = zoom
+				this.zoom = this.getFitZoom()
 				this._notifyFit = true
+
+				// A fitted view is always centred. _restrictPosition can leave a
+				// stale offset when this runs before the layout is measured
+				// (e.g. when saved settings are restored on page load).
+				if (this.position[0] != 0 || this.position[1] != 0) {
+					this.position[0] = 0
+					this.position[1] = 0
+					this.__updateViewport()
+				}
 			},
 
 			// Mouse event listeners

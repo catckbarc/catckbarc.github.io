@@ -49,13 +49,14 @@
 					type: Boolean,
 					value: false,
 				},
+				// When off, strokes are clipped to the canvas as they're drawn.
+				infiniteCanvas: {
+					type: Boolean,
+					value: true,
+				},
 				limitedInk: {
 					type: Boolean,
 					notify: true,
-					value: true,
-				},
-				pixelBrush: {
-					type: Boolean,
 					value: false,
 				},
 			},
@@ -205,14 +206,11 @@
 
 			drawStart: function () {
 				this.currentLines = [[]]
-				this._pixelPoints = new Set()
 				this._setLength(this.length + (this.lines.length == 0 ? 0 : 1))
+				this._baseLength = this.length
 			},
 
 			draw: function (x, y, px, py) {
-				if (this.pixelBrush) {
-					return this._drawPixels(x, y, px, py)
-				}
 				if (this.limitedInk && this.length + 4 > this.maxLength) {
 					return
 				}
@@ -222,95 +220,61 @@
 					[0, 0],
 					[800, 600],
 				]
-				const outOfBounds =
-					!this._within([px, py], rect) && !this._within([x, y], rect)
-				const exitingBounds =
-					this._within([px, py], rect) && !this._within([x, y], rect)
-				const enteringBounds =
-					!this._within([px, py], rect) && this._within([x, y], rect)
 
-				if (outOfBounds) {
-					return []
-				} else if (exitingBounds) {
-					const [clipped] = this._clip([[px, py, x, y]])
-					// Add the [x, y] end of the clip.
-					// If [px, py] was smack on the canvas boundaries,
-					// the clip would've just been [[px, py]]; no [x, y] end.
-					if (clipped.length >= 4) {
-						const [cx, cy] = clipped.slice(2)
-						currentLine.push(cx, cy)
+				if (!this.infiniteCanvas) {
+					const outOfBounds =
+						!this._within([px, py], rect) &&
+						!this._within([x, y], rect)
+					const exitingBounds =
+						this._within([px, py], rect) &&
+						!this._within([x, y], rect)
+					const enteringBounds =
+						!this._within([px, py], rect) &&
+						this._within([x, y], rect)
+
+					if (outOfBounds) {
+						return []
+					} else if (exitingBounds) {
+						const [clipped] = this._clip([[px, py, x, y]])
+						// Add the [x, y] end of the clip.
+						// If [px, py] was smack on the canvas boundaries,
+						// the clip would've just been [[px, py]]; no [x, y] end.
+						if (clipped.length >= 4) {
+							const [cx, cy] = clipped.slice(2)
+							currentLine.push(cx, cy)
+						}
+					} else if (enteringBounds) {
+						this.currentLines.push([])
+						currentLine = this.currentLines.at(-1)
+
+						const [clipped] = this._clip([[px, py, x, y]])
+						currentLine.push(...clipped)
+						this._setLength(this.length + 5) // 5 = space + extra point
+					} else {
+						currentLine.push(x, y)
 					}
-				} else if (enteringBounds) {
-					this.currentLines.push([])
-					currentLine = this.currentLines.at(-1)
 
-					const [clipped] = this._clip([[px, py, x, y]])
-					currentLine.push(...clipped)
-					this._setLength(this.length + 5) // 5 = space + extra point
-				} else {
-					currentLine.push(x, y)
+					this._setLength(this.length + 4)
+					return currentLine.slice(
+						currentLine.length - 4,
+						currentLine.length,
+					)
 				}
 
-				this._setLength(this.length + 4)
+				// Points outside the canvas are kept so they can be shown on the
+				// overflow layer; `data` clips them away when serializing.
+				currentLine.push(x, y)
+
+				// Count only the part of the stroke that is inside the canvas.
+				const clipped = this._clip(this.currentLines)
+				const strokeLength =
+					clipped.reduce((sum, line) => sum + line.length * 2, 0) +
+					Math.max(0, clipped.length - 1)
+				this._setLength(this._baseLength + strokeLength)
 				return currentLine.slice(
 					currentLine.length - 4,
 					currentLine.length,
 				)
-			},
-
-			_drawPixels: function (x, y, px, py) {
-				const pixelSize = 3
-				const startX = Math.floor(px / pixelSize) * pixelSize
-				const startY = Math.floor(py / pixelSize) * pixelSize
-				const endX = Math.floor(x / pixelSize) * pixelSize
-				const endY = Math.floor(y / pixelSize) * pixelSize
-				const distance = Math.max(
-					Math.abs(endX - startX),
-					Math.abs(endY - startY),
-				)
-				const steps = Math.max(1, Math.ceil(distance / pixelSize))
-				const currentLines = this.currentLines
-				let lastLine = currentLines.at(-1)
-				let added = 0
-				for (let step = 0; step <= steps; step++) {
-					const gridX = Math.round(
-						startX + ((endX - startX) * step) / steps,
-					)
-					const gridY = Math.round(
-						startY + ((endY - startY) * step) / steps,
-					)
-					if (
-						gridX < 0 ||
-						gridY < 0 ||
-						gridX >= 800 ||
-						gridY >= 600
-					) {
-						continue
-					}
-					const point = `${gridX}:${gridY}`
-					if (!this._pixelPoints) this._pixelPoints = new Set()
-					if (this._pixelPoints.has(point)) continue
-					if (this.limitedInk && this.length + 8 > this.maxLength) {
-						break
-					}
-					this._pixelPoints.add(point)
-					const line = [
-						gridX,
-						gridY,
-						Math.min(800, gridX + pixelSize),
-						gridY,
-					]
-					line.pixelBrush = true
-					if (lastLine.length == 0) {
-						currentLines[currentLines.length - 1] = line
-					} else {
-						currentLines.push(line)
-					}
-					lastLine = line
-					added++
-				}
-				this._setLength(this.length + added * 8)
-				return lastLine || []
 			},
 
 			drawEnd: function (lines = this.currentLines) {
@@ -331,12 +295,21 @@
 					}
 					this.push("lines", ...lines)
 					this.pushHistory([action])
+					this._syncInkLength()
 				} else {
+					const counted = this._within(
+						[currentLine[0], currentLine[1]],
+						[
+							[0, 0],
+							[800, 600],
+						],
+					)
 					this._setLength(
 						this.length -
-							currentLine.length * 2 -
+							(counted ? currentLine.length * 2 : 0) -
 							(this.lines.length == 0 ? 0 : 1),
 					)
+					this._syncInkLength()
 				}
 			},
 
@@ -368,6 +341,15 @@
 
 					const keepCurrent = () => {
 						if (current.length > 2) {
+							if (line.tonePattern != null) {
+								current.tonePattern = line.tonePattern
+							}
+							if (line.crossTone) {
+								current.crossTone = true
+							}
+							if (line.crossPoint != null) {
+								current.crossPoint = line.crossPoint
+							}
 							added.push(current)
 						}
 						current = []
@@ -584,8 +566,6 @@
 					this._doAction([action])
 					this.pushHistory([action])
 				}
-				this._pixelPoints = new Set()
-
 				return action.added.slice()
 			},
 
@@ -606,6 +586,7 @@
 				this._action[0].move.x += dx
 				this._action[0].move.y += dy
 				this._translateLines(dx, dy)
+				this._syncInkLength()
 			},
 
 			moveEnd: function () {
@@ -652,6 +633,7 @@
 						this._translateTonePoints(dx, dy)
 						this._miniMoveTimestamp = timestamp
 						this._miniMoveAction = action
+						this._syncInkLength()
 						return
 					}
 				} else {
@@ -693,10 +675,16 @@
 			},
 
 			tone: function (x, y, px, py, options) {
-				const rect = [
-					[0, 0],
-					[800, 600],
-				]
+				// Screentone may extend into the area around the canvas.
+				const rect = this.infiniteCanvas
+					? [
+							[-1000, -1000],
+							[1800, 1600],
+						]
+					: [
+							[0, 0],
+							[800, 600],
+						]
 				const action = this._action[0]
 				const { pattern, radius, spacing } = options
 				this._tonePattern = pattern
@@ -748,9 +736,9 @@
 								),
 							),
 						)
-						const candidateLow = Math.max(0, position - half)
+						const candidateLow = Math.max(rect[0][axis], position - half)
 						const candidateHigh = Math.min(
-							horizontal ? 800 : 600,
+							rect[1][axis],
 							position + half,
 						)
 						if (candidateLow > candidateHigh) continue
@@ -966,9 +954,9 @@
 							this.tonePoints.add(tonepoint)
 							strokeTonePoints.add(tonepoint)
 							const square = [
-								Math.max(0, i - 1),
+								Math.max(rect[0][0], i - 1),
 								j,
-								Math.min(800, i + 2),
+								Math.min(rect[1][0], i + 2),
 								j,
 							]
 							square.tonePattern = pattern
@@ -1103,6 +1091,7 @@
 				if (finalize && tones.length >= 1) {
 					this.pushHistory(this._action)
 				}
+				this._syncInkLength()
 			},
 
 			// Other public functions
@@ -1244,6 +1233,7 @@
 				if (oldLength > 0 && this.lines.length == 0) {
 					this._setLength(0)
 				}
+				this._syncInkLength()
 			},
 
 			_undoAction: function (action) {
@@ -1301,6 +1291,7 @@
 				if (oldLength > 0 && this.lines.length == 0) {
 					this._setLength(0)
 				}
+				this._syncInkLength()
 			},
 
 			_fillPattern: function (
@@ -1445,6 +1436,16 @@
 						.toString()
 						.substr(1) + n
 				)
+			},
+
+			// Ink is measured on what will be sent: only the part inside the canvas.
+			_syncInkLength: function () {
+				const clipped = this._clip(this.lines)
+				const total = clipped.reduce(
+					(sum, line) => sum + line.length * 2 + 1,
+					0,
+				)
+				this._setLength(Math.max(0, total - 1))
 			},
 
 			_clip: function (lines) {
@@ -1748,7 +1749,11 @@
 			},
 
 			_isScreentoneLine: function (line) {
-				return line.tonePattern != null || line.crossTone
+				return (
+					line.tonePattern != null ||
+					line.crossTone ||
+					line.crossPoint != null
+				)
 			},
 
 			_matchesTonePattern: function (pattern, x, y, spacing) {
